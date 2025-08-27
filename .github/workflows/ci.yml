@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        workspace: [web, api]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies (root)
+        run: npm install
+      - name: Install dependencies (workspace)
+        run: npm -w ${{ matrix.workspace }} install
+      - name: Lint
+        run: npm -w ${{ matrix.workspace }} run lint
+      - name: Typecheck
+        run: npm -w ${{ matrix.workspace }} run typecheck
+      - name: Build
+        run: npm -w ${{ matrix.workspace }} run build
+      - name: Test
+        run: |
+          if npm -w ${{ matrix.workspace }} run -s test -- --coverage --passWithNoTests; then
+            echo "Tests passed";
+          else
+            echo "No tests or tests failed"; exit 1; fi
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.workspace }}
+          path: ${{ matrix.workspace }}/coverage
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm install
+      - name: NPM Audit (non-blocking)
+        run: |
+          npm audit --audit-level=moderate || true
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Dependency Review'
+        uses: actions/dependency-review-action@v4

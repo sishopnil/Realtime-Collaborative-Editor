@@ -82,10 +82,11 @@ At a glance:
 ## Run It Locally
 All services are containerized for a one‑command startup via Docker Compose.
 
-Quick start (when Compose is present):
+Quick start:
 1) Copy environment examples and adjust as needed: `cp web/.env.example web/.env` and `cp api/.env.example api/.env`.
 2) Start everything: `docker compose up --build`.
 3) Open the web app at `http://localhost:3000` and the API at `http://localhost:4000`.
+4) Health: API exposes `/health` and `/ready`; compose waits for API before starting web.
 
 Compose services:
 - web (Next.js) with hot reload
