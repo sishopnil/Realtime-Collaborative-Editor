@@ -24,10 +24,10 @@
       "prettier --write"
     ],
     "web/**/*.{ts,tsx,js,jsx}": [
-      "npm -w web run lint -- --fix"
+      "cd web && npm run lint"
     ],
     "api/**/*.{ts,tsx,js,jsx}": [
-      "npm -w api run lint -- --fix"
+      "cd api && npm run lint"
     ]
   }
 }

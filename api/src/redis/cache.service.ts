@@ -17,5 +17,14 @@ export class CacheService {
   async del(key: string): Promise<void> {
     await this.redis.getClient().del(key);
   }
-}
 
+  async incr(key: string, ttlSeconds?: number): Promise<number> {
+    const client = this.redis.getClient();
+    const val = await client.incr(key);
+    if (ttlSeconds) {
+      // Only set expiry if this is a new key
+      if (val === 1) await client.expire(key, ttlSeconds);
+    }
+    return val;
+  }
+}

@@ -13,10 +13,16 @@ export class Workspace {
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   ownerId!: string;
+
+  @Prop({ type: Object, default: {} })
+  settings?: {
+    description?: string;
+    resourceLimits?: { maxDocuments?: number };
+    defaultRole?: 'viewer' | 'editor' | 'admin';
+  };
 }
 
 export type WorkspaceDocument = HydratedDocument<Workspace>;
 export const WorkspaceSchema = SchemaFactory.createForClass(Workspace);
 WorkspaceSchema.index({ slug: 1 }, { unique: true });
 WorkspaceSchema.index({ ownerId: 1, createdAt: -1 });
-

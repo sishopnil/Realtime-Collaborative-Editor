@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsArray, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class UpdateDocumentDto {
   @ApiPropertyOptional()
@@ -12,5 +12,9 @@ export class UpdateDocumentDto {
   @IsOptional()
   @IsIn(['active', 'archived'])
   status?: 'active' | 'archived';
-}
 
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  tags?: string[];
+}

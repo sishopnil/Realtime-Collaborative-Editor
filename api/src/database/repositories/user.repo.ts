@@ -14,5 +14,12 @@ export class UserRepository {
   findByEmail(email: string) {
     return this.model.findOne({ email }).exec();
   }
-}
 
+  findById(id: string) {
+    return this.model.findById(id).exec();
+  }
+
+  async updateById(id: string, update: Partial<User>) {
+    return this.model.findByIdAndUpdate(id, update, { new: true }).exec();
+  }
+}

@@ -1,13 +1,13 @@
 import { Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
-import { Document, DocumentSchema } from '../database/schemas/document.schema';
-import { DocumentRepository } from '../database/repositories/document.repo';
 import { DocumentsService } from './documents.service';
 import { DocumentsController } from './documents.controller';
+import { WorkspaceGuard } from '../workspaces/workspace.guard';
+import { DocumentGuard } from './document.guard';
+import { DatabaseModule } from '../database/database.module';
 
 @Module({
-  imports: [MongooseModule.forFeature([{ name: Document.name, schema: DocumentSchema }])],
-  providers: [DocumentRepository, DocumentsService],
+  imports: [DatabaseModule],
+  providers: [WorkspaceGuard, DocumentGuard, DocumentsService],
   controllers: [DocumentsController],
 })
 export class DocumentsModule {}

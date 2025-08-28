@@ -11,6 +11,10 @@ export class WorkspaceRepository {
     return this.model.create(data);
   }
 
+  createWithSession(data: Partial<Workspace>, session: any) {
+    return this.model.create([data], { session }).then((arr) => arr[0]);
+  }
+
   listByOwner(ownerId: string) {
     return this.model.find({ ownerId }).sort({ createdAt: -1 }).exec();
   }
@@ -23,4 +27,3 @@ export class WorkspaceRepository {
     return this.model.findByIdAndUpdate(id, data, { new: true }).exec();
   }
 }
-

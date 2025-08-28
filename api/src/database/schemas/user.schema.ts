@@ -16,9 +16,11 @@ export class User {
 
   @Prop()
   avatar?: string;
+
+  @Prop()
+  emailVerifiedAt?: Date;
 }
 
 export type UserDocument = HydratedDocument<User>;
 export const UserSchema = SchemaFactory.createForClass(User);
 UserSchema.index({ email: 1 }, { unique: true });
-

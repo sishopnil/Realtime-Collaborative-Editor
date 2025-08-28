@@ -19,10 +19,12 @@ export class Document {
 
   @Prop({ default: 'active', index: true })
   status!: 'active' | 'archived' | 'deleted';
+
+  @Prop({ type: Date })
+  deletedAt?: Date;
 }
 
 export type DocumentDocument = HydratedDocument<Document>;
 export const DocumentSchema = SchemaFactory.createForClass(Document);
 DocumentSchema.index({ workspaceId: 1, updatedAt: -1 });
 DocumentSchema.index({ title: 'text', tags: 1 });
-
