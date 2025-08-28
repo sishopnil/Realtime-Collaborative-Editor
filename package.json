@@ -9,13 +9,13 @@
     "lint": "npm -w web run lint && npm -w api run lint",
     "typecheck": "npm -w web run typecheck && npm -w api run typecheck",
     "build": "npm -w web run build && npm -w api run build",
-    "prepare": "husky install",
+    "prepare": "husky",
     "dev": "concurrently -n api,web -c cyan,magenta \"npm -w api run start:dev\" \"npm -w web run dev\"",
     "seed": "npm -w api run seed"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
-    "husky": "^9.0.0",
+    "husky": "^9.1.7",
     "lint-staged": "^15.2.0",
     "prettier": "^3.3.0"
   },
