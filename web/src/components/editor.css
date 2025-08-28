@@ -1,0 +1,56 @@
+:root { --border:#ddd; --bg:#fff; --toolbar-bg:#fafafa; --btn-border:#ccc; --btn-active:#8ab4f8; --code-bg:#0f172a; --code-fg:#e2e8f0; }
+[data-theme="contrast"] { --border:#000; --bg:#fff; --toolbar-bg:#000; --btn-border:#000; --btn-active:#ff0; --code-bg:#000; --code-fg:#ff0; }
+
+.editor-container { border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--toolbar-bg);
+}
+.editor-toolbar button {
+  border: 1px solid var(--btn-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: var(--bg);
+  cursor: pointer;
+}
+.editor-toolbar button[aria-pressed="true"] {
+  background: #eef6ff;
+  border-color: var(--btn-active);
+}
+.editor-content {
+  padding: 12px;
+  min-height: 240px;
+}
+.editor-content h1 { font-size: 1.8rem; }
+.editor-content h2 { font-size: 1.4rem; }
+.editor-content pre {
+  background: var(--code-bg);
+  color: var(--code-fg);
+  padding: 10px;
+  border-radius: 6px;
+  overflow: auto;
+}
+.editor-content blockquote {
+  border-left: 3px solid #ddd;
+  margin: 0;
+  padding-left: 10px;
+  color: #555;
+}
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
+
+.slash-menu {
+  position: absolute;
+  z-index: 20;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+}
+.slash-menu [role="option"] { padding: 6px 10px; border-radius: 6px; }
+.slash-menu [aria-selected="true"] { background: #eef6ff; }

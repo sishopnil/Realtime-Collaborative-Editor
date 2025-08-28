@@ -80,6 +80,7 @@ export default function WorkspaceDocumentsPage() {
           <li key={d._id}>
             <strong>{d.title}</strong> [{d.status}] — tags: {(d.tags || []).join(', ') || '—'} —{' '}
             <a href={`/workspaces/${id}/documents/${d._id}/permissions`}>Permissions</a> —
+            <a href={`/workspaces/${id}/documents/${d._id}/edit`}>Edit</a> —
             <button
               onClick={() =>
                 update(d._id, { status: d.status === 'archived' ? 'active' : 'archived' })

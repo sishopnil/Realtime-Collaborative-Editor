@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { User, UserSchema } from './schemas/user.schema';
 import { Workspace, WorkspaceSchema } from './schemas/workspace.schema';
+import { DocumentContent, DocumentContentSchema } from './schemas/document-content.schema';
 import { Document, DocumentSchema } from './schemas/document.schema';
 import { WorkspaceMember, WorkspaceMemberSchema } from './schemas/workspace-member.schema';
 import { DocumentPermission, DocumentPermissionSchema } from './schemas/document-permission.schema';
@@ -31,6 +32,7 @@ import { slowQueryPlugin } from './plugins/slow-query.plugin';
       { name: Document.name, schema: DocumentSchema },
       { name: WorkspaceMember.name, schema: WorkspaceMemberSchema },
       { name: DocumentPermission.name, schema: DocumentPermissionSchema },
+      { name: DocumentContent.name, schema: DocumentContentSchema },
     ]),
   ],
   providers: [

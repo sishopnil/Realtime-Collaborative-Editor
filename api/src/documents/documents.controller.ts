@@ -21,6 +21,7 @@ import { WorkspaceGuard, WorkspaceRole } from '../workspaces/workspace.guard';
 import { DocumentGuard, DocumentRole } from './document.guard';
 import { Request } from 'express';
 import { stripHtml } from '../common/sanitize';
+import { gzipSync } from 'zlib';
 
 @ApiTags('documents')
 @Controller('api/docs')
@@ -94,5 +95,23 @@ export class DocumentsController {
   @DocumentRole('editor')
   delPerm(@Param('id') id: string, @Param('userId') userId: string) {
     return this.svc.removePermission(id, userId);
+  }
+
+  // Yjs content endpoints
+  @Get(':id/y')
+  @ApiOperation({ summary: 'Get Yjs document state (gzipped base64 update and vector)' })
+  @UseGuards(DocumentGuard)
+  @DocumentRole('viewer')
+  yGet(@Param('id') id: string) {
+    return this.svc.getYState(id);
+  }
+
+  @Post(':id/y')
+  @ApiOperation({ summary: 'Apply Yjs update (gzipped base64)' })
+  @UseGuards(DocumentGuard)
+  @DocumentRole('editor')
+  yPost(@Param('id') id: string, @Body() body: { update: string }) {
+    if (!body.update) return { ok: false } as any;
+    return this.svc.applyYUpdate(id, body.update);
   }
 }

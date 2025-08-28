@@ -6,6 +6,9 @@ import { CacheService } from '../redis/cache.service';
 import { WorkspaceRepository } from '../database/repositories/workspace.repo';
 import { DocumentPermissionRepository } from '../database/repositories/document-permission.repo';
 import { UserRepository } from '../database/repositories/user.repo';
+import * as Y from 'yjs';
+import { gzipSync, gunzipSync } from 'zlib';
+import { DocumentContentRepository } from '../database/repositories/document-content.repo';
 
 @Injectable()
 export class DocumentsService {
@@ -15,6 +18,7 @@ export class DocumentsService {
     private readonly workspacesRepo: WorkspaceRepository,
     private readonly perms: DocumentPermissionRepository,
     private readonly users: UserRepository,
+    private readonly contents: DocumentContentRepository,
   ) {}
 
   async create(input: CreateDocumentDto) {
@@ -84,5 +88,42 @@ export class DocumentsService {
 
   removePermission(documentId: string, userId: string) {
     return this.perms.remove(documentId, userId);
+  }
+
+  // Yjs state persistence (gzipped base64 update and vector)
+  async getYState(documentId: string) {
+    const rec = await this.contents.findByDocumentId(documentId);
+    if (!rec) {
+      // new empty doc
+      const ydoc = new Y.Doc();
+      const update = Y.encodeStateAsUpdate(ydoc);
+      const vector = Y.encodeStateVector(ydoc);
+      return { update: Buffer.from(update).toString('base64'), vector: Buffer.from(vector).toString('base64') };
+    }
+    // stored gzipped; return raw update base64 for clients
+    const raw = gunzipSync(rec.state);
+    return { update: Buffer.from(raw).toString('base64'), vector: rec.vector.toString('base64') };
+  }
+
+  async applyYUpdate(documentId: string, updateB64: string) {
+    const rec = await this.contents.findByDocumentId(documentId);
+    const ydoc = new Y.Doc();
+    if (rec) {
+      try {
+        Y.applyUpdate(ydoc, gunzipSync(rec.state));
+      } catch {}
+    }
+    let update: Buffer;
+    try {
+      update = gunzipSync(Buffer.from(updateB64, 'base64'));
+    } catch {
+      update = Buffer.from(updateB64, 'base64');
+    }
+    Y.applyUpdate(ydoc, update);
+    const merged = Y.encodeStateAsUpdate(ydoc);
+    const vector = Y.encodeStateVector(ydoc);
+    const gz = gzipSync(Buffer.from(merged));
+    await this.contents.upsertState(documentId, gz, Buffer.from(vector));
+    return { ok: true };
   }
 }
