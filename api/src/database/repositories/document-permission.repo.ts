@@ -30,4 +30,8 @@ export class DocumentPermissionRepository {
   find(documentId: string, userId: string) {
     return this.model.findOne({ documentId, userId }).exec();
   }
+
+  listByUser(userId: string) {
+    return this.model.find({ userId }).exec();
+  }
 }

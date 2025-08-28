@@ -1,4 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { fieldEncryptionPlugin } from '../plugins/field-encryption.plugin';
 import { HydratedDocument } from 'mongoose';
 
 @Schema({ timestamps: true })
@@ -24,3 +25,5 @@ export class User {
 export type UserDocument = HydratedDocument<User>;
 export const UserSchema = SchemaFactory.createForClass(User);
 UserSchema.index({ email: 1 }, { unique: true });
+// Encrypt sensitive PII (name) at rest
+UserSchema.plugin(fieldEncryptionPlugin as any, { fields: ['name'] });

@@ -8,6 +8,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { Request } from 'express';
 import { WorkspaceMemberRepository } from '../database/repositories/workspace-member.repo';
+import { SecurityLogger } from '../common/security-logger.service';
 
 export const WorkspaceRole = (role: 'viewer' | 'editor' | 'admin' | 'owner') =>
   SetMetadata('workspace:role', role);
@@ -19,6 +20,7 @@ export class WorkspaceGuard implements CanActivate {
   constructor(
     private readonly members: WorkspaceMemberRepository,
     private readonly reflector: Reflector,
+    private readonly audit: SecurityLogger,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -32,9 +34,21 @@ export class WorkspaceGuard implements CanActivate {
     const userId = req.user?.id;
     if (!userId) throw new ForbiddenException('Not authenticated');
     const member = await this.members.findRole(wsId as string, userId);
-    if (!member) throw new ForbiddenException('Not a workspace member');
+    if (!member) {
+      await this.audit.log('security.permission.denied', { scope: 'workspace', wsId, userId });
+      throw new ForbiddenException('Not a workspace member');
+    }
     const ok = rank[(member as any).role] >= rank[required];
-    if (!ok) throw new ForbiddenException('Insufficient role');
+    if (!ok) {
+      await this.audit.log('security.permission.denied', {
+        scope: 'workspace',
+        wsId,
+        userId,
+        required,
+        have: (member as any).role,
+      });
+      throw new ForbiddenException('Insufficient role');
+    }
     return true;
   }
 }

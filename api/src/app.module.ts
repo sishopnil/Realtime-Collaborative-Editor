@@ -7,6 +7,9 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
 import { DocumentsModule } from './documents/documents.module';
+import { AuditInterceptor } from './common/audit.interceptor';
+import { SecurityController } from './security/security.controller';
+import { SecurityLogger } from './common/security-logger.service';
 
 @Module({
   imports: [
@@ -18,7 +21,7 @@ import { DocumentsModule } from './documents/documents.module';
     WorkspacesModule,
     DocumentsModule,
   ],
-  controllers: [HealthController],
-  providers: [],
+  controllers: [HealthController, SecurityController],
+  providers: [AuditInterceptor, SecurityLogger],
 })
 export class AppModule {}

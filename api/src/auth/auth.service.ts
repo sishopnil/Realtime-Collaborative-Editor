@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import { CacheService } from '../redis/cache.service';
 import { RedisService } from '../redis/redis.service';
 import { randomBytes, randomUUID } from 'crypto';
+import { JwtKeysService } from '../security/jwt-keys.service';
 
 type TokenPair = { accessToken: string; refreshToken: string; refreshId: string };
 
@@ -18,6 +19,7 @@ export class AuthService {
     private readonly users: UserRepository,
     private readonly cache: CacheService,
     private readonly redis: RedisService,
+    private readonly keys: JwtKeysService,
   ) {}
 
   async validateUser(email: string, password: string) {
@@ -32,23 +34,16 @@ export class AuthService {
     userId: string,
     opts?: { refreshTtlSec?: number; ip?: string | undefined; ua?: string | undefined },
   ): Promise<TokenPair> {
-    const secret = process.env.JWT_SECRET || 'changeme';
     const now = Math.floor(Date.now() / 1000);
-    const accessToken = jwt.sign({ iat: now }, secret, {
-      subject: userId,
-      expiresIn: this.accessTtlSec,
-      issuer: this.issuer,
-      audience: 'rce-web',
-      header: { typ: 'JWT' },
-    });
+    const accessToken = await this.keys.sign({ iat: now }, userId, this.accessTtlSec, 'rce-web', this.issuer);
     const jti = randomUUID();
-    const refreshToken = jwt.sign({ iat: now, type: 'refresh', jti }, secret, {
-      subject: userId,
-      expiresIn: opts?.refreshTtlSec ?? this.refreshTtlSec,
-      issuer: this.issuer,
-      audience: 'rce-web',
-      header: { typ: 'JWT' },
-    });
+    const refreshToken = await this.keys.sign(
+      { iat: now, type: 'refresh', jti },
+      userId,
+      opts?.refreshTtlSec ?? this.refreshTtlSec,
+      'rce-web',
+      this.issuer,
+    );
     const ttl = opts?.refreshTtlSec ?? this.refreshTtlSec;
     await this.cache.setJson(this.refreshKey(jti), { userId, jti }, ttl);
     // Track session metadata
@@ -71,8 +66,7 @@ export class AuthService {
     oldToken: string,
     opts?: { ip?: string; ua?: string },
   ): Promise<TokenPair> {
-    const secret = process.env.JWT_SECRET || 'changeme';
-    const payload = jwt.verify(oldToken, secret) as any;
+    const payload = (await this.keys.verify(oldToken)) as any;
     if (payload.type !== 'refresh' || !payload.jti)
       throw new UnauthorizedException('Invalid token');
     const key = this.refreshKey(payload.jti);

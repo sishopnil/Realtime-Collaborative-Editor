@@ -20,6 +20,7 @@ import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceGuard, WorkspaceRole } from '../workspaces/workspace.guard';
 import { DocumentGuard, DocumentRole } from './document.guard';
 import { Request } from 'express';
+import { stripHtml } from '../common/sanitize';
 
 @ApiTags('documents')
 @Controller('api/docs')
@@ -33,7 +34,8 @@ export class DocumentsController {
   @ApiOperation({ summary: 'Create document (metadata only)' })
   @WorkspaceRole('editor')
   create(@Body() body: CreateDocumentDto, @Req() req: Request & { user?: any }) {
-    return this.svc.create({ ...body, ownerId: req.user!.id });
+    const title = stripHtml(body.title) || body.title;
+    return this.svc.create({ ...body, title, ownerId: req.user!.id });
   }
 
   @Get()
@@ -53,7 +55,9 @@ export class DocumentsController {
   @UseGuards(DocumentGuard)
   @DocumentRole('editor')
   update(@Param('id') id: string, @Body() body: UpdateDocumentDto) {
-    return this.svc.update(id, body);
+    const patch: any = { ...body };
+    if (typeof patch.title === 'string') patch.title = stripHtml(patch.title);
+    return this.svc.update(id, patch);
   }
 
   @Delete(':id')

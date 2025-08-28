@@ -26,6 +26,7 @@ RUN npm run build || true
 FROM node:${NODE_VERSION} AS runner
 WORKDIR /app
 ENV NODE_ENV=${APP_ENV}
+ENV NODE_OPTIONS=--tls-min-v1.3
 USER node
 COPY --from=builder /app .
 EXPOSE 3000

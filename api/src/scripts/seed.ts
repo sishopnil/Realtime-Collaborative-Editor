@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
+import { getBcryptCost } from '../common/security';
 import { UserSchema } from '../database/schemas/user.schema';
 import { WorkspaceSchema } from '../database/schemas/workspace.schema';
 import { DocumentSchema } from '../database/schemas/document.schema';
@@ -16,7 +17,7 @@ async function run() {
   const existing = await User.findOne({ email });
   let user = existing;
   if (!user) {
-    user = await User.create({ email, passwordHash: await bcrypt.hash('password', 10), name: 'Owner' });
+    user = await User.create({ email, passwordHash: await bcrypt.hash('password', getBcryptCost()), name: 'Owner' });
   }
 
   const slug = 'demo';
@@ -42,4 +43,3 @@ run().catch((e) => {
   console.error(e);
   process.exit(1);
 });
-

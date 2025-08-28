@@ -24,6 +24,8 @@ import { SecurityLogger } from '../common/security-logger.service';
 import { authenticator } from 'otplib';
 import { RedisService } from '../redis/redis.service';
 import * as bcrypt from 'bcryptjs';
+import { hashPassword } from '../common/security';
+import { verifyCaptcha } from '../common/captcha';
 
 @ApiTags('auth')
 @Controller('api/auth')
@@ -52,11 +54,20 @@ export class AuthController {
     const lockKey = `lock:${body.email}`;
     const locked = await this.cache.getJson<number>(lockKey);
     if (locked) throw new UnauthorizedException('Account locked. Try again later');
-    const attempts = await this.cache.incr(rateKey, 60 * 5);
-    if (attempts > 10) {
-      await this.cache.setJson(lockKey, 1, 60 * 15);
+    // 5 attempts per minute
+    const attempts = await this.cache.incr(rateKey, 60);
+    if (attempts > 5) {
+      await this.cache.setJson(lockKey, 1, 60 * 10);
       await this.audit.log('auth.lockout', { email: body.email, ip });
       throw new UnauthorizedException('Too many attempts, account temporarily locked');
+    }
+    // if attempts > 3, require CAPTCHA token when enabled
+    if (attempts > 3 && process.env.CAPTCHA_ENABLED) {
+      const ok = await verifyCaptcha((body as any).captchaToken);
+      if (!ok) {
+        await this.audit.log('auth.captcha.required', { email: body.email, ip });
+        throw new UnauthorizedException('Captcha verification required');
+      }
     }
     try {
       const user = await this.auth.validateUser(body.email, body.password);
@@ -156,7 +167,7 @@ export class AuthController {
     const email = body.email.toLowerCase().trim();
     let user = await this.users.findByEmail(email);
     if (!user) {
-      const passwordHash = await bcrypt.hash((Math.random() + '').slice(2), 10);
+      const passwordHash = await hashPassword(bcrypt, (Math.random() + '').slice(2));
       user = await this.users.create({ email, passwordHash, name: body.name });
     }
     const pair = await this.auth.generateTokenPair((user as any)._id, {
@@ -249,7 +260,7 @@ export class AuthController {
   async resetPassword(@Body() body: ResetPasswordDto) {
     const userId = await this.auth.consumePasswordResetToken(body.token);
     if (!userId) throw new UnauthorizedException('Invalid or expired token');
-    const passwordHash = await bcrypt.hash(body.newPassword, 10);
+    const passwordHash = await hashPassword(bcrypt, body.newPassword);
     await this.users.updateById(userId, { passwordHash });
     await this.audit.log('auth.reset.success', { userId });
     return { ok: true };

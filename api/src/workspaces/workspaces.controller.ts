@@ -20,6 +20,8 @@ import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceGuard, WorkspaceRole } from './workspace.guard';
 import { Request } from 'express';
 import { UserRepository } from '../database/repositories/user.repo';
+import { SecurityLogger } from '../common/security-logger.service';
+import { sanitizeHtml, stripHtml } from '../common/sanitize';
 
 @ApiTags('workspaces')
 @Controller('api/workspaces')
@@ -29,6 +31,7 @@ export class WorkspacesController {
   constructor(
     private readonly svc: WorkspacesService,
     private readonly usersRepo: UserRepository,
+    private readonly audit: SecurityLogger,
   ) {}
 
   @Post()
@@ -36,7 +39,7 @@ export class WorkspacesController {
   @ApiOperation({ summary: 'Create workspace' })
   create(@Body() body: CreateWorkspaceDto, @Req() req: Request & { user?: any }) {
     // enforce ownerId from token
-    return this.svc.create({ ...body, ownerId: req.user!.id });
+    return this.svc.create({ ...body, ownerId: req.user!.id } as any);
   }
 
   @Get()
@@ -55,7 +58,12 @@ export class WorkspacesController {
   @ApiOperation({ summary: 'Update workspace' })
   @ApiResponse({ status: 404, description: 'Workspace not found' })
   update(@Param('id') id: string, @Body() body: UpdateWorkspaceDto) {
-    return this.svc.update(id, body);
+    const patch: any = { ...body };
+    if (patch.settings && typeof patch.settings.description === 'string') {
+      patch.settings.description = sanitizeHtml(patch.settings.description);
+    }
+    if (typeof patch.name === 'string') patch.name = stripHtml(patch.name);
+    return this.svc.update(id, patch);
   }
 
   @Delete(':id')
@@ -88,7 +96,9 @@ export class WorkspacesController {
       userId = (user as any)._id;
     }
     if (!userId) throw new Error('userId or email required');
-    return this.svc.addOrUpdateMember(workspaceId, userId, body.role);
+    const result = await this.svc.addOrUpdateMember(workspaceId, userId, body.role);
+    await this.audit.log('security.role.update', { workspaceId, userId, role: body.role });
+    return result;
   }
 
   @Delete(':workspaceId/members/:userId')

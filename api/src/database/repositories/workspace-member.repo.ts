@@ -28,4 +28,8 @@ export class WorkspaceMemberRepository {
   findRole(workspaceId: string, userId: string) {
     return this.model.findOne({ workspaceId, userId }).exec();
   }
+
+  listByUser(userId: string) {
+    return this.model.find({ userId }).exec();
+  }
 }

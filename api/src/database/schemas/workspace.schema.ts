@@ -1,4 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { fieldEncryptionPlugin } from '../plugins/field-encryption.plugin';
 import { HydratedDocument, Types } from 'mongoose';
 
 @Schema({ timestamps: true })
@@ -26,3 +27,5 @@ export type WorkspaceDocument = HydratedDocument<Workspace>;
 export const WorkspaceSchema = SchemaFactory.createForClass(Workspace);
 WorkspaceSchema.index({ slug: 1 }, { unique: true });
 WorkspaceSchema.index({ ownerId: 1, createdAt: -1 });
+// Encrypt potentially sensitive settings fields
+WorkspaceSchema.plugin(fieldEncryptionPlugin as any, { fields: ['settings.description'] });

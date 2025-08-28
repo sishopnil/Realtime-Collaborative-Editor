@@ -5,10 +5,12 @@ import { DatabaseModule } from '../database/database.module';
 import { RedisModule } from '../redis/redis.module';
 import { AuthGuard } from './auth.guard';
 import { SecurityLogger } from '../common/security-logger.service';
+import { SecretsModule } from '../secrets/secrets.module';
+import { JwtKeysService } from '../security/jwt-keys.service';
 
 @Module({
-  imports: [DatabaseModule, RedisModule],
-  providers: [AuthService, AuthGuard, SecurityLogger],
+  imports: [DatabaseModule, RedisModule, SecretsModule],
+  providers: [AuthService, AuthGuard, SecurityLogger, JwtKeysService],
   controllers: [AuthController],
   exports: [AuthGuard],
 })
