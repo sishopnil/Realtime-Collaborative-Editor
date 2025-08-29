@@ -11,5 +11,6 @@ import { SecurityLogger } from '../common/security-logger.service';
   imports: [DatabaseModule],
   providers: [WorkspaceGuard, DocumentGuard, DocumentsService, SecurityLogger, DocumentContentRepository],
   controllers: [DocumentsController],
+  exports: [DocumentsService, DocumentContentRepository],
 })
 export class DocumentsModule {}

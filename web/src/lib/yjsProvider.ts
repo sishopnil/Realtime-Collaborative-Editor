@@ -1,5 +1,7 @@
 "use client";
 import * as Y from 'yjs';
+import { io, Socket } from 'socket.io-client';
+import { unzipSync, strToU8, decompressSync } from 'fflate';
 import { IndexeddbPersistence } from 'y-indexeddb';
 
 export type YProviderOptions = {
@@ -11,8 +13,15 @@ export type YProviderOptions = {
 };
 
 export type SyncStatus =
-  | { state: 'idle' | 'syncing' | 'ok'; pending: number; lastSyncAt?: number; offline: boolean }
-  | { state: 'backoff'; pending: number; delayMs: number; offline: boolean };
+  | {
+      state: 'idle' | 'syncing' | 'ok';
+      pending: number;
+      lastSyncAt?: number;
+      offline: boolean;
+      readOnly?: boolean;
+      lastError?: { code?: number; type: string; at: number };
+    }
+  | { state: 'backoff'; pending: number; delayMs: number; offline: boolean; readOnly?: boolean; lastError?: { code?: number; type: string; at: number } };
 
 export class SimpleYProvider {
   readonly ydoc: Y.Doc;
@@ -26,8 +35,14 @@ export class SimpleYProvider {
   private backoffMs = 0;
   private readonly maxBackoffMs: number;
   private offline = false;
+  private readOnly = false;
   private listeners: Set<(s: SyncStatus) => void> = new Set();
   private bc?: BroadcastChannel;
+  private socket?: Socket;
+  private wsSeq = 0;
+  private wsConnected = false;
+  private wsQueue: { b64: string; msgId: string; seq: number }[] = [];
+  private consecutiveFailures = 0;
 
   constructor(opts: YProviderOptions) {
     this.ydoc = new Y.Doc();
@@ -37,7 +52,17 @@ export class SimpleYProvider {
     this.maxBackoffMs = opts.maxBackoffMs ?? 30000;
     this.persistence = new IndexeddbPersistence(`doc-${this.docId}`, this.ydoc);
     this.ydoc.on('update', (u: Uint8Array) => {
-      this.enqueue(u);
+      // If WS connected, prefer realtime update; otherwise queue for REST flush
+      if (this.wsConnected) {
+        try {
+          const b64 = toBase64(u);
+          this.sendYUpdate(b64);
+        } catch {
+          this.enqueue(u);
+        }
+      } else {
+        this.enqueue(u);
+      }
       try {
         this.bc?.postMessage({ t: 'u', u: toBase64(u) });
       } catch {}
@@ -57,6 +82,8 @@ export class SimpleYProvider {
         }
       };
     }
+    // Attempt realtime WS connection in browser
+    if (typeof window !== 'undefined') this.initRealtime();
   }
 
   async load() {
@@ -73,6 +100,8 @@ export class SimpleYProvider {
         const update = fromBase64(json.update);
         Y.applyUpdate(this.ydoc, update);
         this.markSynced();
+        this.readOnly = false;
+        this.consecutiveFailures = 0;
       }
     } catch (e) {
       // offline: rely on IndexedDB to populate state
@@ -80,6 +109,79 @@ export class SimpleYProvider {
       console.warn('Y load failed, using local cache', e);
     }
     await this.persistence.whenSynced; // ensure local cache applied
+  }
+
+  // Realtime WebSocket integration
+  private initRealtime() {
+    const base = this.apiBase || window.location.origin;
+    const token = (typeof localStorage !== 'undefined' && localStorage.getItem('accessToken')) || '';
+    try {
+      this.socket = io(base, {
+        transports: ['websocket'],
+        withCredentials: true,
+        auth: token ? { token: `Bearer ${token}` } : undefined,
+      });
+    } catch (e) {
+      return; // silently fall back to REST-only mode
+    }
+    const s = this.socket;
+    s.on('connect', () => {
+      this.wsConnected = true;
+      s.emit('doc:join', { documentId: this.docId });
+    });
+    s.on('disconnect', () => {
+      this.wsConnected = false;
+      // trigger backoff-based REST flush path to keep data moving
+      this.scheduleBackoff('network_error');
+    });
+    s.on('doc:joined', () => {
+      // Drain any queued updates
+      const q = [...this.wsQueue];
+      this.wsQueue = [];
+      q.forEach((m) => this.sendYUpdate(m.b64, m.msgId, m.seq));
+    });
+    s.on('y-init', (p: { documentId: string; updateB64: string; vectorB64: string; gz?: boolean }) => {
+      try {
+        const buf = fromBase64(p.updateB64);
+        const raw = p.gz ? (decompressSync as any)(buf) : buf;
+        Y.applyUpdate(this.ydoc, raw);
+        this.markSynced();
+      } catch {}
+    });
+    s.on('y-update', (p: { documentId: string; updateB64: string; gz?: boolean }) => {
+      try {
+        const buf = fromBase64(p.updateB64);
+        const raw = p.gz ? (decompressSync as any)(buf) : buf;
+        Y.applyUpdate(this.ydoc, raw);
+        this.markSynced();
+      } catch {}
+    });
+    s.on('presence', (p: any) => {
+      try {
+        window.dispatchEvent(new CustomEvent('doc-presence', { detail: { docId: this.docId, presence: p } }));
+      } catch {}
+    });
+    s.on('ack', (_p: any) => {
+      // acks are handled best-effort; no specific action required here
+    });
+  }
+
+  private sendYUpdate(b64: string, msgId?: string, seq?: number) {
+    if (!this.socket || !this.wsConnected) {
+      const id = msgId || Math.random().toString(36).slice(2);
+      const s = seq || ++this.wsSeq;
+      this.wsQueue.push({ b64, msgId: id, seq: s });
+      return;
+    }
+    const id = msgId || Math.random().toString(36).slice(2);
+    const s = seq || ++this.wsSeq;
+    this.socket.emit('y-update', { documentId: this.docId, updateB64: b64, msgId: id, seq: s });
+  }
+
+  sendPresence(p: { anchor: number; head: number; typing?: boolean }) {
+    try {
+      this.socket?.emit('presence', { documentId: this.docId, ...p });
+    } catch {}
   }
 
   private enqueue(update: Uint8Array) {
@@ -103,29 +205,50 @@ export class SimpleYProvider {
     const body = { update: toBase64(merged) };
     try {
       this.emit('syncing');
-      await fetch(`${this.apiBase}/api/docs/${this.docId}/y`, {
+      const res = await fetch(`${this.apiBase}/api/docs/${this.docId}/y`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      if (!res.ok) throw res;
       this.lastSyncAt = Date.now();
       this.backoffMs = 0;
+      this.consecutiveFailures = 0;
       this.persistQueue();
       this.saveMeta();
       this.emit('ok');
       this.bumpCounter('sync_ok');
-    } catch (e) {
-      // queue again on failure (offline)
+    } catch (e: any) {
+      // classify error
+      const code = typeof e?.status === 'number' ? e.status : undefined;
+      const type = !navigator.onLine
+        ? 'offline'
+        : code === 401
+        ? 'unauthorized'
+        : code === 429
+        ? 'rate_limit'
+        : code && code >= 500
+        ? 'server_error'
+        : 'network_error';
+      this.consecutiveFailures++;
+      // queue again on failure (offline/degraded)
       this.enqueue(merged);
-      this.scheduleBackoff();
+      if (type === 'unauthorized') this.readOnly = true;
+      this.scheduleBackoff(type, e?.headers);
+      this.emitError({ code, type });
       this.bumpCounter('sync_fail');
     }
   }
 
-  private scheduleBackoff() {
-    if (this.backoffMs === 0) this.backoffMs = 1000;
-    else this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
+  private scheduleBackoff(reason?: string, headers?: Headers) {
+    const jitter = Math.floor(Math.random() * 300);
+    if (reason === 'rate_limit') {
+      const ra = headers?.get?.('Retry-After');
+      const wait = ra ? parseInt(ra, 10) * 1000 : 2000;
+      this.backoffMs = wait + jitter;
+    } else if (this.backoffMs === 0) this.backoffMs = 1000 + jitter;
+    else this.backoffMs = Math.min(this.backoffMs * 2 + jitter, this.maxBackoffMs);
     setTimeout(() => this.flush().catch(() => {}), this.backoffMs);
     this.emit('backoff');
   }
@@ -136,8 +259,10 @@ export class SimpleYProvider {
     return () => this.listeners.delete(listener);
   }
   status(): SyncStatus {
-    if (this.backoffMs > 0) return { state: 'backoff', pending: this.queue.length, delayMs: this.backoffMs, offline: this.offline };
-    return { state: 'idle', pending: this.queue.length, lastSyncAt: this.lastSyncAt, offline: this.offline };
+    const base = { readOnly: this.readOnly, lastError: this.loadLastError() } as any;
+    if (this.backoffMs > 0)
+      return { state: 'backoff', pending: this.queue.length, delayMs: this.backoffMs, offline: this.offline, ...base };
+    return { state: 'idle', pending: this.queue.length, lastSyncAt: this.lastSyncAt, offline: this.offline, ...base };
   }
   private emit(state?: 'syncing' | 'ok' | 'backoff') {
     const base = this.status();
@@ -155,8 +280,46 @@ export class SimpleYProvider {
 
   private setOffline(v: boolean) {
     this.offline = v;
-    if (!v) this.flush().catch(() => {});
+    if (!v) {
+      // back online: try partial resync then flush queued updates
+      this.resync().finally(() => this.flush().catch(() => {}));
+    }
     this.emit();
+  }
+
+  async resync() {
+    try {
+      const res = await fetch(`${this.apiBase}/api/docs/${this.docId}/y`, { credentials: 'include' });
+      if (res.ok) {
+        const json = await res.json();
+        const update = fromBase64(json.update);
+        Y.applyUpdate(this.ydoc, update);
+        this.markSynced();
+        this.readOnly = false;
+        this.consecutiveFailures = 0;
+      }
+    } catch {}
+  }
+
+  retryNow() {
+    this.backoffMs = 0;
+    this.flush().catch(() => {});
+  }
+
+  private emitError(err: { code?: number; type: string }) {
+    try {
+      const detail = { docId: this.docId, at: Date.now(), ...err };
+      localStorage.setItem(`doc-last-error:${this.docId}`, JSON.stringify(detail));
+      window.dispatchEvent(new CustomEvent('doc-sync-error', { detail }));
+    } catch {}
+  }
+  private loadLastError(): { code?: number; type: string; at: number } | undefined {
+    try {
+      const raw = localStorage.getItem(`doc-last-error:${this.docId}`);
+      return raw ? (JSON.parse(raw) as any) : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private metaKey() {

@@ -10,6 +10,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { AuditInterceptor } from './common/audit.interceptor';
 import { SecurityController } from './security/security.controller';
 import { SecurityLogger } from './common/security-logger.service';
+import { WsModule } from './ws/ws.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { SecurityLogger } from './common/security-logger.service';
     UsersModule,
     WorkspacesModule,
     DocumentsModule,
+    WsModule,
   ],
   controllers: [HealthController, SecurityController],
   providers: [AuditInterceptor, SecurityLogger],

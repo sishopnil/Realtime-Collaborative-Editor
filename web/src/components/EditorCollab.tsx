@@ -10,6 +10,7 @@ import { t, isRtlLocale } from '../i18n';
 import { SlashMenu } from './SlashMenu';
 import * as Y from 'yjs';
 import { SimpleYProvider, SyncStatus } from '../lib/yjsProvider';
+import { useConnectionMonitor } from '../lib/connection';
 
 export type EditorCollabHandle = { getHTML: () => string | undefined; getJSON: () => any };
 export default forwardRef<EditorCollabHandle, { docId: string }>(function EditorCollab({ docId }, ref) {
@@ -40,7 +41,9 @@ export default forwardRef<EditorCollabHandle, { docId: string }>(function Editor
   );
 
   const [status, setStatus] = useState<SyncStatus>({ state: 'idle', pending: 0, offline: false });
+  const health = useConnectionMonitor();
   const [showSlash, setShowSlash] = useState(false);
+  const [typing, setTyping] = useState<Record<string, number>>({});
   const [theme, setTheme] = useState<'default' | 'contrast'>(() =>
     (typeof window !== 'undefined' && (localStorage.getItem('editorTheme') as any)) || 'default',
   );
@@ -51,6 +54,13 @@ export default forwardRef<EditorCollabHandle, { docId: string }>(function Editor
       attributes: { 'aria-label': 'Collaborative editor', class: 'editor-content', dir: isRtlLocale() ? 'rtl' : 'auto' },
     },
   });
+
+  // Toggle read-only when offline or unauthorized
+  useEffect(() => {
+    if (!editor) return;
+    const ro = (status as any).readOnly || status.offline;
+    editor.setEditable(!ro);
+  }, [editor, status]);
 
   useEffect(() => {
     if (!editor) return;
@@ -64,12 +74,54 @@ export default forwardRef<EditorCollabHandle, { docId: string }>(function Editor
       } else if (e.ctrlKey && e.key === '/') {
         e.preventDefault();
         setShowSlash((v) => !v);
+      } else {
+        // mark typing for peers
+        providerRef.current?.sendPresence({ anchor: editor.state.selection.anchor, head: editor.state.selection.head, typing: true });
+        // clear typing after short idle
+        setTimeout(() => providerRef.current?.sendPresence({ anchor: editor.state.selection.anchor, head: editor.state.selection.head, typing: false }), 1200);
       }
     };
     const dom = editor.view.dom as HTMLElement;
     dom.addEventListener('keydown', handler);
     return () => dom.removeEventListener('keydown', handler);
   }, [editor]);
+
+  // Send selection presence on transactions
+  useEffect(() => {
+    if (!editor) return;
+    const unsub = editor.on('transaction', () => {
+      const sel = editor.state.selection;
+      providerRef.current?.sendPresence({ anchor: sel.anchor, head: sel.head });
+    });
+    return () => { (unsub as any)?.(); };
+  }, [editor]);
+
+  // Listen for presence updates to show typing indicators
+  useEffect(() => {
+    const onPresence = (e: any) => {
+      const p = e.detail?.presence as { userId: string; typing?: boolean } | undefined;
+      if (!p?.userId) return;
+      setTyping((prev) => {
+        const next = { ...prev };
+        if (p.typing) next[p.userId] = Date.now();
+        else delete next[p.userId];
+        return next;
+      });
+    };
+    window.addEventListener('doc-presence' as any, onPresence);
+    const clean = setInterval(() => {
+      setTyping((prev) => {
+        const now = Date.now();
+        const next: Record<string, number> = {};
+        for (const [k, v] of Object.entries(prev)) if (now - v < 2000) next[k] = v;
+        return next;
+      });
+    }, 2000);
+    return () => {
+      window.removeEventListener('doc-presence' as any, onPresence);
+      clearInterval(clean);
+    };
+  }, []);
 
   useImperativeHandle(
     ref,
@@ -109,11 +161,35 @@ export default forwardRef<EditorCollabHandle, { docId: string }>(function Editor
           HC
         </button>
         <span aria-live="polite" style={{ marginLeft: 'auto', fontSize: 12 }}>
-          {status.offline ? t('offline') : status.state === 'syncing' ? t('syncing') : status.state === 'backoff' ? `${t('reconnect')} ${(status as any).delayMs / 1000} ${t('seconds')}` : t('allSaved')}
+          {status.offline
+            ? t('offline')
+            : status.state === 'syncing'
+            ? t('syncing')
+            : status.state === 'backoff'
+            ? `${t('reconnect')} ${Math.ceil(((status as any).delayMs || 0) / 1000)} ${t('seconds')}`
+            : (status as any).readOnly
+            ? t('readOnly')
+            : t('allSaved')}
           {` · Pending: ${status.pending}`}
         </span>
+        {(status.offline || status.state === 'backoff') && (
+          <button aria-label={t('retry')} onClick={() => providerRef.current?.retryNow()} style={{ marginLeft: 8 }}>
+            {t('retry')}
+          </button>
+        )}
         <button aria-label={t('export')} onClick={() => exportBackup(provideDoc())}>{t('export')}</button>
       </div>
+      {Object.keys(typing).length > 0 && (
+        <div role="status" aria-live="polite" style={{ fontSize: 12, color: '#2563eb', marginTop: 4 }}>
+          {`${Object.keys(typing).length} user(s) typing…`}
+        </div>
+      )}
+      {health.status !== 'ok' && (
+        <div role="status" style={{ color: '#b45309', fontSize: 12, margin: '8px 0' }}>
+          {health.status === 'degraded' ? 'Service degraded; syncing may be delayed.' : 'Service down; working offline.'}
+          {health.rttMs ? ` · RTT: ${Math.round(health.rttMs)}ms` : ''}
+        </div>
+      )}
       <EditorContent editor={editor} />
       {showSlash && editor && (
         <SlashMenu
