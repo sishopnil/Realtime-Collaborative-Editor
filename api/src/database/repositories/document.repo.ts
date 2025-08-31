@@ -24,11 +24,28 @@ export class DocumentRepository {
     return this.model.findByIdAndUpdate(id, data, { new: true }).exec();
   }
 
+  incVersion(id: string, session?: any) {
+    return this.model
+      .findByIdAndUpdate(id, { $inc: { version: 1 } }, { new: true, session })
+      .select({ version: 1, workspaceId: 1 })
+      .exec();
+  }
+
   countByWorkspace(workspaceId: string) {
     return this.model.countDocuments({ workspaceId, status: { $ne: 'deleted' } }).exec();
   }
 
   findById(id: string) {
     return this.model.findById(id).exec();
+  }
+
+  async listDeletedBefore(cutoff: Date): Promise<string[]> {
+    const rows = await this.model
+      .find({ status: 'deleted', deletedAt: { $lte: cutoff } })
+      .select({ _id: 1 })
+      .limit(1000)
+      .lean()
+      .exec();
+    return rows.map((r: any) => r._id?.toString());
   }
 }

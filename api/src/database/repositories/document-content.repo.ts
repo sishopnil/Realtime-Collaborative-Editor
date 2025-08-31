@@ -11,14 +11,23 @@ export class DocumentContentRepository {
     return this.model.findOne({ documentId }).exec();
   }
 
-  async upsertState(documentId: string, state: Buffer, vector: Buffer) {
+  async upsertState(documentId: string, state: Buffer, vector: Buffer, checksum?: string, session?: any) {
     return this.model
       .findOneAndUpdate(
         { documentId },
-        { $set: { state, vector, updatedAt: new Date() } },
-        { upsert: true, new: true, setDefaultsOnInsert: true },
+        { $set: { state, vector, checksum, updatedAt: new Date() } },
+        { upsert: true, new: true, setDefaultsOnInsert: true, session },
       )
       .exec();
   }
-}
 
+  async deleteByDocumentIds(ids: string[]) {
+    if (!ids.length) return { deletedCount: 0 } as any;
+    return this.model.deleteMany({ documentId: { $in: ids } }).exec();
+  }
+
+  // Expose underlying model for maintenance tasks that need aggregation
+  get mongooseModel() {
+    return this.model;
+  }
+}

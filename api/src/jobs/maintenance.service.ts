@@ -1,0 +1,89 @@
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { JobQueueService } from './job-queue.service';
+import { DocumentRepository } from '../database/repositories/document.repo';
+import { DocumentContentRepository } from '../database/repositories/document-content.repo';
+import mongoose from 'mongoose';
+import { SecurityLogger } from '../common/security-logger.service';
+
+@Injectable()
+export class MaintenanceService implements OnModuleInit {
+  private readonly logger = new Logger(MaintenanceService.name);
+
+  constructor(
+    private readonly queue: JobQueueService,
+    private readonly docs: DocumentRepository,
+    private readonly contents: DocumentContentRepository,
+    private readonly audit: SecurityLogger,
+  ) {}
+
+  onModuleInit() {
+    this.queue.register('doc.cleanup.deleted', async () => this.cleanupDeleted());
+    this.queue.register('orphan.cleanup', async () => this.cleanupOrphans());
+    this.queue.register('index.maintain', async () => this.syncIndexes());
+    this.queue.register('cache.cleanup', async () => this.cleanupCache());
+    this.queue.register('audit.rotate', async () => this.rotateAudit());
+
+    // basic schedule (fallback for when no external scheduler): run periodic jobs
+    setInterval(() => {
+      void this.queue.add('doc.cleanup.deleted', {}, { attempts: 1 });
+      void this.queue.add('orphan.cleanup', {}, { attempts: 1 });
+      void this.queue.add('index.maintain', {}, { attempts: 1, delayMs: 2000 });
+      void this.queue.add('audit.rotate', {}, { attempts: 1, delayMs: 3000 });
+    }, 60_000);
+  }
+
+  async cleanupDeleted() {
+    const ttlDays = parseInt(process.env.DOC_DELETE_TTL_DAYS || '30', 10);
+    const cutoff = new Date(Date.now() - ttlDays * 24 * 3600 * 1000);
+    const ids = await this.docs.listDeletedBefore(cutoff);
+    if (ids.length === 0) return;
+    await this.contents.deleteByDocumentIds(ids);
+    await this.audit.log('doc.cleanup.deleted', { count: ids.length });
+    this.logger.log(`Cleaned content for ${ids.length} deleted docs`);
+  }
+
+  async cleanupOrphans() {
+    // aggregation to find content without a corresponding document
+    const Model = this.contents.mongooseModel as mongoose.Model<any> | undefined;
+    if (!Model) return; // skip if underlying model not accessible
+    const orphans = await (Model as any).aggregate([
+      {
+        $lookup: { from: 'documents', localField: 'documentId', foreignField: '_id', as: 'doc' },
+      },
+      { $match: { doc: { $size: 0 } } },
+      { $project: { _id: 1 } },
+      { $limit: 1000 },
+    ]).exec();
+    const ids = orphans.map((o: any) => o._id);
+    if (ids.length) await Model.deleteMany({ _id: { $in: ids } });
+    await this.audit.log('doc.cleanup.orphans', { count: ids.length });
+  }
+
+  async syncIndexes() {
+    const models = mongoose.connection.models;
+    for (const name of Object.keys(models)) {
+      try {
+        await models[name].syncIndexes();
+      } catch {}
+    }
+    await this.audit.log('db.index.sync', { ok: true });
+  }
+
+  async cleanupCache() {
+    try {
+      const client = (this.queue as any).redis.getClient();
+      const keys = await client.keys('docs:ws:*');
+      if (keys.length) await client.del(keys);
+      await this.audit.log('cache.cleanup', { count: keys.length });
+    } catch {}
+  }
+
+  async rotateAudit() {
+    try {
+      const client = (this.queue as any).redis.getClient();
+      const max = parseInt(process.env.AUDIT_LOG_MAX || '10000', 10);
+      await client.ltrim('audit-log', 0, Math.max(0, max - 1));
+      await this.audit.log('audit.rotate', { max });
+    } catch {}
+  }
+}

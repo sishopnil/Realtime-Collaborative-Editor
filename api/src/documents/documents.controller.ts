@@ -33,6 +33,7 @@ export class DocumentsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create document (metadata only)' })
+  @ApiResponse({ status: 201, description: 'Document created', schema: { example: { _id: '64f0...', workspaceId: '64ef...', title: 'My Doc', ownerId: '64ab...', status: 'active', tags: [], version: 0, createdAt: '2024-08-28T00:00:00.000Z', updatedAt: '2024-08-28T00:00:00.000Z' } } })
   @WorkspaceRole('editor')
   create(@Body() body: CreateDocumentDto, @Req() req: Request & { user?: any }) {
     const title = stripHtml(body.title) || body.title;
@@ -41,6 +42,7 @@ export class DocumentsController {
 
   @Get()
   @ApiOperation({ summary: 'List documents in a workspace' })
+  @ApiResponse({ status: 200, description: 'List of documents', schema: { example: [{ _id: '64f0...', title: 'Doc A', status: 'active', tags: ['notes'], version: 10 }, { _id: '64f1...', title: 'Doc B', status: 'archived', tags: [], version: 2 }] } })
   @WorkspaceRole('viewer')
   list(
     @Query('workspaceId') workspaceId: string,
@@ -67,6 +69,55 @@ export class DocumentsController {
   @DocumentRole('editor')
   remove(@Param('id') id: string) {
     return this.svc.softDelete(id);
+  }
+
+  // History & snapshots
+  @Get(':id/snapshots')
+  @ApiOperation({ summary: 'List recent snapshots' })
+  @UseGuards(DocumentGuard)
+  @DocumentRole('viewer')
+  listSnaps(@Param('id') id: string) {
+    return this.svc.listSnapshots(id);
+  }
+
+  @Post(':id/snapshots')
+  @ApiOperation({ summary: 'Create a snapshot now' })
+  @UseGuards(DocumentGuard)
+  @DocumentRole('editor')
+  async createSnap(@Param('id') id: string) {
+    const state = await this.svc.getYState(id);
+    // The service auto-snapshots at intervals; to force one, we can apply a no-op update (state itself)
+    await this.svc.applyYUpdate(id, state.update);
+    return { ok: true };
+  }
+
+  @Post(':id/rollback')
+  @ApiOperation({ summary: 'Rollback to a snapshot' })
+  @UseGuards(DocumentGuard)
+  @DocumentRole('editor')
+  rollback(@Param('id') id: string, @Body() body: { snapshotId: string }) {
+    return this.svc.rollbackToSnapshot(id, body.snapshotId);
+  }
+
+  @Post(':id/repair')
+  @ApiOperation({ summary: 'Validate and attempt repair of document state' })
+  @UseGuards(DocumentGuard)
+  @DocumentRole('editor')
+  repair(@Param('id') id: string) {
+    return this.svc.validateAndRepair(id);
+  }
+
+  @Get(':id/export')
+  @ApiOperation({ summary: 'Export document' })
+  @UseGuards(DocumentGuard)
+  @DocumentRole('viewer')
+  async export(@Param('id') id: string, @Query('format') format: 'yupdate' | 'json' = 'yupdate') {
+    const state = await this.svc.getYState(id);
+    if (format === 'json') {
+      return { yupdateB64: state.update, vectorB64: state.vector };
+    }
+    // default yupdate – identical to json wrapper above for now
+    return { yupdateB64: state.update, vectorB64: state.vector };
   }
 
   // Permissions management
@@ -100,6 +151,7 @@ export class DocumentsController {
   // Yjs content endpoints
   @Get(':id/y')
   @ApiOperation({ summary: 'Get Yjs document state (gzipped base64 update and vector)' })
+  @ApiResponse({ status: 200, description: 'State payload', schema: { example: { update: 'base64...', vector: 'base64...' } } })
   @UseGuards(DocumentGuard)
   @DocumentRole('viewer')
   yGet(@Param('id') id: string) {
@@ -108,6 +160,7 @@ export class DocumentsController {
 
   @Post(':id/y')
   @ApiOperation({ summary: 'Apply Yjs update (gzipped base64)' })
+  @ApiResponse({ status: 200, description: 'Update applied', schema: { example: { ok: true } } })
   @UseGuards(DocumentGuard)
   @DocumentRole('editor')
   yPost(@Param('id') id: string, @Body() body: { update: string }) {

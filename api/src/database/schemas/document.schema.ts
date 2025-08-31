@@ -22,6 +22,10 @@ export class Document {
 
   @Prop({ type: Date })
   deletedAt?: Date;
+
+  // incremented on each persisted Yjs update
+  @Prop({ type: Number, default: 0 })
+  version!: number;
 }
 
 export type DocumentDocument = HydratedDocument<Document>;

@@ -32,6 +32,7 @@ const BATCH_MS = parseInt(process.env.WS_BATCH_MS || '40', 10);
 const COMPRESS_THRESHOLD = parseInt(process.env.WS_COMPRESS_THRESHOLD || '2048', 10);
 const UPDATE_MAX_BYTES = parseInt(process.env.WS_UPDATE_MAX_BYTES || '1048576', 10);
 const IDLE_PRUNE_MS = parseInt(process.env.WS_IDLE_PRUNE_MS || '300000', 10);
+const PRESENCE_MIN_MS = parseInt(process.env.WS_PRESENCE_MIN_MS || '60', 10);
 
 @WebSocketGateway({
   cors: {
@@ -55,6 +56,7 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
   private sub?: any;
   private subRefs = new Map<string, number>();
   private heartbeatTimer?: NodeJS.Timeout;
+  private presenceLast = new Map<string, number>(); // key: `${docId}:${userId}`
 
   constructor(
     private readonly redis: RedisService,
@@ -158,6 +160,12 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
     } catch {}
     await this.audit.log('ws.room.join', { userId: user.id, documentId });
     client.emit('doc:joined', { documentId });
+
+    // Notify size warnings if any
+    try {
+      const note = await this.redis.getClient().get(`doc:size:${documentId}`);
+      if (note) client.emit('doc:notice', { documentId, type: 'size', data: JSON.parse(note) });
+    } catch {}
 
     // Flush any offline queued messages for this user+doc
     await this.flushOfflineQueue(documentId, user.id, client);
@@ -306,9 +314,19 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
     const documentId = (payload && payload.documentId || '').trim();
     if (!documentId) throw new WsException('documentId required');
     const room = `${ROOM_PREFIX}${documentId}`;
+    // throttle presence spam per user/doc
+    const k = `${documentId}:${user.id}`;
+    const now = Date.now();
+    const last = this.presenceLast.get(k) || 0;
+    if (now - last < PRESENCE_MIN_MS) {
+      try { await this.redis.getClient().incr('metrics:presence:dropped'); } catch {}
+      return; // drop silently
+    }
+    this.presenceLast.set(k, now);
     const evt = { documentId, anchor: payload.anchor|0, head: payload.head|0, typing: !!payload.typing, userId: user.id } as any;
     client.to(room).emit('presence', evt);
     await this.publishFanout(documentId, { type: 'presence', payload: evt });
+    try { await this.redis.getClient().incr('metrics:presence:sent'); } catch {}
   }
 
   // Health/diagnostics

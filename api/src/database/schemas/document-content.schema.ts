@@ -15,9 +15,14 @@ export class DocumentContent {
   // yjs state vector (Uint8Array)
   @Prop({ type: Buffer, required: true })
   vector!: Buffer;
+
+  // sha256 checksum of raw, uncompressed merged state
+  @Prop({ type: String })
+  checksum?: string;
 }
 
 export type DocumentContentDocument = HydratedDocument<DocumentContent>;
 export const DocumentContentSchema = SchemaFactory.createForClass(DocumentContent);
 DocumentContentSchema.index({ documentId: 1 }, { unique: true });
-
+DocumentContentSchema.index({ updatedAt: -1 });
+try { (DocumentContentSchema as any).index({ documentId: 'hashed' }); } catch {}

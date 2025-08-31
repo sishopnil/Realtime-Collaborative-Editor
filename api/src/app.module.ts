@@ -11,6 +11,8 @@ import { AuditInterceptor } from './common/audit.interceptor';
 import { SecurityController } from './security/security.controller';
 import { SecurityLogger } from './common/security-logger.service';
 import { WsModule } from './ws/ws.module';
+import { JobsModule } from './jobs/jobs.module';
+import { MetricsController } from './metrics/metrics.controller';
 
 @Module({
   imports: [
@@ -22,8 +24,9 @@ import { WsModule } from './ws/ws.module';
     WorkspacesModule,
     DocumentsModule,
     WsModule,
+    JobsModule,
   ],
-  controllers: [HealthController, SecurityController],
+  controllers: [HealthController, SecurityController, MetricsController],
   providers: [AuditInterceptor, SecurityLogger],
 })
 export class AppModule {}
