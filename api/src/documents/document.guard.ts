@@ -35,6 +35,14 @@ export class DocumentGuard implements CanActivate {
 
     const docId = (req.params as any)?.id || (req.params as any)?.documentId;
     if (!docId) return true; // For list/create guarded by workspace
+
+    // Allow access for valid share tokens bound to this document
+    if (req.user && (req.user as any).share && String((req.user as any).share.documentId) === String(docId)) {
+      const shareRole = (req.user as any).share.role as 'viewer' | 'editor';
+      if (rank[shareRole] >= rank[required]) return true;
+      await this.audit.log('security.permission.denied', { scope: 'document', docId, userId, reason: 'share-insufficient-role' });
+      throw new ForbiddenException('Share link does not grant required permissions');
+    }
     const doc = await this.docs.findById(docId);
     if (!doc) {
       await this.audit.log('security.permission.denied', { scope: 'document', docId: docId, userId });

@@ -140,6 +140,18 @@ export class DocumentsController {
     return this.svc.addPermission(id, body);
   }
 
+  @Post(':id/permissions/bulk')
+  @ApiOperation({ summary: 'Bulk add or update document permissions' })
+  @UseGuards(DocumentGuard)
+  @DocumentRole('editor')
+  addPermBulk(
+    @Param('id') id: string,
+    @Body() body: { users: { userId?: string; email?: string; role: 'viewer' | 'editor' }[] },
+  ) {
+    const list = Array.isArray(body?.users) ? body.users : [];
+    return Promise.all(list.map((u) => this.svc.addPermission(id, u)));
+  }
+
   @Delete(':id/permissions/:userId')
   @ApiOperation({ summary: 'Remove document permission' })
   @UseGuards(DocumentGuard)
@@ -166,5 +178,45 @@ export class DocumentsController {
   yPost(@Param('id') id: string, @Body() body: { update: string }) {
     if (!body.update) return { ok: false } as any;
     return this.svc.applyYUpdate(id, body.update);
+  }
+
+  // Version history & snapshots
+  @Get(':id/snapshots')
+  @ApiOperation({ summary: 'List document snapshots (version history)' })
+  @UseGuards(DocumentGuard)
+  @DocumentRole('viewer')
+  listSnapshots(@Param('id') id: string) {
+    return this.svc.listSnapshots(id, 50);
+  }
+
+  @Post(':id/snapshots/manual')
+  @ApiOperation({ summary: 'Create a manual snapshot with metadata' })
+  @UseGuards(DocumentGuard)
+  @DocumentRole('editor')
+  createSnapshot(
+    @Param('id') id: string,
+    @Body()
+    body: { label?: string; description?: string; tags?: string[]; category?: string; isMilestone?: boolean },
+    @Req() req: any,
+  ) {
+    return this.svc.createManualSnapshot(id, req.user?.id, body);
+  }
+
+  @Get(':id/diff')
+  @ApiOperation({ summary: 'Compute diff update from one snapshot to another' })
+  @UseGuards(DocumentGuard)
+  @DocumentRole('viewer')
+  diff(
+    @Param('id') id: string,
+    @Query('from') fromId: string,
+    @Query('to') toId: string,
+  ) {
+    return this.svc.diffSnapshots(id, fromId, toId);
+  }
+
+  @Patch('snapshots/:snapshotId')
+  @ApiOperation({ summary: 'Update snapshot metadata (label/description/tags/category/milestone)' })
+  async updateSnapshot(@Param('snapshotId') snapshotId: string, @Req() req: any, @Body() body: any) {
+    return this.svc.updateSnapshotMeta(String(req.user?.id), snapshotId, body || {});
   }
 }

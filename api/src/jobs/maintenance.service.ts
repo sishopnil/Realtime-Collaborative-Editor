@@ -25,6 +25,7 @@ export class MaintenanceService implements OnModuleInit {
     this.queue.register('cache.cleanup', async () => this.cleanupCache());
     this.queue.register('audit.rotate', async () => this.rotateAudit());
     this.queue.register('comments.archive', async () => this.archiveOldComments());
+    this.queue.register('snapshot.retention', async () => this.snapshotRetention());
 
     // basic schedule (fallback for when no external scheduler): run periodic jobs
     setInterval(() => {
@@ -33,6 +34,7 @@ export class MaintenanceService implements OnModuleInit {
       void this.queue.add('index.maintain', {}, { attempts: 1, delayMs: 2000 });
       void this.queue.add('audit.rotate', {}, { attempts: 1, delayMs: 3000 });
       void this.queue.add('comments.archive', {}, { attempts: 1, delayMs: 4000 });
+      void this.queue.add('snapshot.retention', {}, { attempts: 1, delayMs: 5000 });
     }, 60_000);
   }
 
@@ -104,6 +106,38 @@ export class MaintenanceService implements OnModuleInit {
         { $set: { archivedAt: new Date() } },
       );
       await this.audit.log('comments.archive', { matched: res?.matchedCount ?? undefined, modified: res?.modifiedCount ?? undefined });
+    } catch {}
+  }
+
+  async snapshotRetention() {
+    try {
+      const Snap = mongoose.connection.models['DocumentSnapshot'] as mongoose.Model<any> | undefined;
+      if (!Snap) return;
+      const agg = await (Snap as any)
+        .aggregate([
+          { $group: { _id: '$documentId', count: { $sum: 1 } } },
+          { $match: { count: { $gt: parseInt(process.env.SNAPSHOT_KEEP_LAST || '20', 10) } } },
+          { $limit: 200 },
+        ])
+        .exec();
+      const keepLast = parseInt(process.env.SNAPSHOT_KEEP_LAST || '20', 10);
+      const maxAgeDays = parseInt(process.env.SNAPSHOT_MAX_AGE_DAYS || '90', 10);
+      const cutoff = new Date(Date.now() - maxAgeDays * 24 * 3600 * 1000);
+      for (const row of agg) {
+        const list = await (Snap as any)
+          .find({ documentId: row._id })
+          .sort({ seq: -1 })
+          .select({ _id: 1, isMilestone: 1, createdAt: 1 })
+          .lean()
+          .exec();
+        const toDelete: any[] = [];
+        for (let i = keepLast; i < list.length; i++) {
+          const s = list[i];
+          if (!s.isMilestone && new Date(s.createdAt) < cutoff) toDelete.push(s._id);
+        }
+        if (toDelete.length) await (Snap as any).deleteMany({ _id: { $in: toDelete } }).exec();
+        await this.audit.log('snapshot.retention', { documentId: String(row._id), deleted: toDelete.length });
+      }
     } catch {}
   }
 }

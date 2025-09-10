@@ -61,7 +61,7 @@ export class CommentsController {
     const isReply = !!body.parentId;
     const data: any = {
       documentId: String(body.documentId),
-      authorId: String(req.user?.id || ''),
+      authorId: this.resolveAuthorId(req),
       text: String(body.text),
       status: body.status || 'open',
       tags: body.tags || [],
@@ -87,9 +87,10 @@ export class CommentsController {
     } catch {}
     // @mentions parsing and notifications
     try {
-      const mentions = await this.extractMentions(String(body.text || ''), String(body.documentId));
-      for (const uid of mentions) {
-        if (String(uid) === String(req.user?.id)) continue;
+      if (!req.user?.guest) {
+        const mentions = await this.extractMentions(String(body.text || ''), String(body.documentId));
+        for (const uid of mentions) {
+          if (String(uid) === String(req.user?.id)) continue;
         await this.notifs.create({
           userId: uid,
           type: isReply ? ('reply' as any) : ('mention' as any),
@@ -105,6 +106,7 @@ export class CommentsController {
           threadId: (saved as any).threadId || (saved as any)._id,
           text: String(body.text || '').slice(0, 120),
         });
+        }
       }
     } catch {}
     try {
@@ -120,18 +122,20 @@ export class CommentsController {
     if (!body?.text) throw new BadRequestException('Missing fields');
     const rec = await this.repo.create({
       documentId: String(body.documentId),
-      authorId: String(req.user?.id || ''),
+      authorId: this.resolveAuthorId(req),
       text: String(body.text),
       parentId: id,
       threadId: String(body.threadId || id),
       status: 'open',
     } as any);
     try {
-      const mentions = await this.extractMentions(String(body.text || ''), String(body.documentId));
-      for (const uid of mentions) {
-        if (String(uid) === String(req.user?.id)) continue;
-        await this.notifs.create({ userId: uid, type: 'reply' as any, documentId: String(body.documentId), commentId: (rec as any)._id, threadId: String(body.threadId || id), data: { by: req.user?.id, text: String(body.text || '').slice(0, 200) } });
-        await this.publishNotify(uid, { type: 'reply', documentId: String(body.documentId), commentId: (rec as any)._id, threadId: String(body.threadId || id), text: String(body.text || '').slice(0, 120) });
+      if (!req.user?.guest) {
+        const mentions = await this.extractMentions(String(body.text || ''), String(body.documentId));
+        for (const uid of mentions) {
+          if (String(uid) === String(req.user?.id)) continue;
+          await this.notifs.create({ userId: uid, type: 'reply' as any, documentId: String(body.documentId), commentId: (rec as any)._id, threadId: String(body.threadId || id), data: { by: req.user?.id, text: String(body.text || '').slice(0, 200) } });
+          await this.publishNotify(uid, { type: 'reply', documentId: String(body.documentId), commentId: (rec as any)._id, threadId: String(body.threadId || id), text: String(body.text || '').slice(0, 120) });
+        }
       }
     } catch {}
     try {
@@ -364,5 +368,14 @@ export class CommentsController {
     if (hasLink) score += 5;
     if (hasCode) score += 5;
     return Math.max(0, Math.min(100, score));
+  }
+
+  private resolveAuthorId(req: any): string {
+    if (!req?.user) return '';
+    if (!req.user.guest) return String(req.user.id || '');
+    const token = String(req.user?.share?.token || 'guest');
+    let hex = Buffer.from(token).toString('hex');
+    if (hex.length < 24) hex = (hex + '0'.repeat(24)).slice(0, 24);
+    return hex.slice(0, 24);
   }
 }

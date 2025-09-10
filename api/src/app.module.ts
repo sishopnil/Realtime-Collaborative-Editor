@@ -15,6 +15,8 @@ import { CommentsModule } from './comments/comments.module';
 import { JobsModule } from './jobs/jobs.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { MetricsController } from './metrics/metrics.controller';
+import { SearchModule } from './search/search.module';
+import { SharingModule } from './sharing/sharing.module';
 
 @Module({
   imports: [
@@ -29,6 +31,8 @@ import { MetricsController } from './metrics/metrics.controller';
     CommentsModule,
     NotificationsModule,
     JobsModule,
+    SearchModule,
+    SharingModule,
   ],
   controllers: [HealthController, SecurityController, MetricsController],
   providers: [AuditInterceptor, SecurityLogger],

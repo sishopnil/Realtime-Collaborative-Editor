@@ -55,4 +55,19 @@ export class CommentRepository {
   softDelete(id: string) {
     return this.model.findByIdAndUpdate(id, { deletedAt: new Date() as any }, { new: true }).exec();
   }
+
+  async search(opts: { q?: string; documentId?: string; workspaceId?: string; limit?: number; skip?: number }) {
+    const q: FilterQuery<CommentDoc> = { deletedAt: { $exists: false } as any } as any;
+    if (opts.documentId) (q as any).documentId = opts.documentId;
+    // No workspaceId inside comments directly; join via document repo should be used at controller if needed
+    let query = this.model.find(q).sort({ createdAt: -1 }).lean();
+    if (opts.q) {
+      query = this.model
+        .find({ ...q, $text: { $search: opts.q } })
+        .select({ score: { $meta: 'textScore' }, documentId: 1, text: 1, createdAt: 1, authorId: 1, threadId: 1 })
+        .sort({ score: { $meta: 'textScore' }, createdAt: -1 })
+        .lean();
+    }
+    return query.skip(Math.max(0, opts.skip || 0)).limit(Math.max(1, Math.min(200, opts.limit || 20))).exec();
+  }
 }

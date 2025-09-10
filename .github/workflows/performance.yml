@@ -1,0 +1,40 @@
+name: Performance (k6)
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "API base URL (e.g. http://localhost:4000)"
+        required: true
+        default: "http://localhost:4000"
+      vus:
+        description: "Virtual users"
+        required: false
+        default: "50"
+      duration:
+        description: "Test duration"
+        required: false
+        default: "1m"
+
+jobs:
+  k6:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+      - name: Baseline
+        run: |
+          k6 run --vus 10 --duration 30s tests/load/k6/baseline.js \
+            --tag test=baseline --env BASE_URL="${{ github.event.inputs.base_url }}"
+      - name: Comments
+        run: |
+          k6 run tests/load/k6/comments.js \
+            --vus "${{ github.event.inputs.vus }}" --duration "${{ github.event.inputs.duration }}" \
+            --tag test=comments --env BASE_URL="${{ github.event.inputs.base_url }}"
+      - name: Search
+        run: |
+          k6 run tests/load/k6/search.js \
+            --vus 60 --duration "${{ github.event.inputs.duration }}" \
+            --tag test=search --env BASE_URL="${{ github.event.inputs.base_url }}"
+

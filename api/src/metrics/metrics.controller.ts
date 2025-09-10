@@ -22,6 +22,10 @@ export class MetricsController {
       'metrics:comments:resolved',
       'metrics:comments:deleted',
       'metrics:comments:reacted',
+      'metrics:sharing:views',
+      'metrics:sharing:links',
+      'metrics:search:queries',
+      'metrics:search:clicks',
     ];
     const vals = await r.mget(keys);
     const out: Record<string, number> = {};

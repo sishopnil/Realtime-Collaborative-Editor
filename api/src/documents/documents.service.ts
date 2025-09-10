@@ -250,6 +250,66 @@ export class DocumentsService {
     return { ok: true };
   }
 
+  // Create a manual snapshot with optional metadata/labeling
+  async createManualSnapshot(
+    documentId: string,
+    userId: string,
+    meta?: { label?: string; description?: string; tags?: string[]; category?: string; isMilestone?: boolean },
+  ) {
+    const rec = await this.contents.findByDocumentId(documentId);
+    if (!rec) throw new NotFoundException('No state to snapshot');
+    const verDoc = await this.docs.incVersion(documentId);
+    const seq = (verDoc as any)?.version ?? 0;
+    const created = await this.snaps.create(
+      documentId,
+      seq,
+      (rec as any).state,
+      (rec as any).vector,
+      (rec as any).checksum,
+    );
+    const fields: any = {
+      label: meta?.label || '',
+      description: meta?.description || '',
+      tags: (meta?.tags || []).slice(0, 20),
+      category: meta?.category || 'manual',
+      isMilestone: !!meta?.isMilestone,
+      createdBy: userId,
+      createdReason: 'manual',
+    };
+    await this.snaps.updateMeta((created as any)._id, fields);
+    return { ...(created as any), ...fields };
+  }
+
+  // Compute diff from snapshot A->B: returns patch update (base64) and summary
+  async diffSnapshots(documentId: string, fromId: string, toId: string) {
+    const a = await this.snaps.findById(fromId);
+    const b = await this.snaps.findById(toId);
+    if (!a || !b) throw new NotFoundException('Snapshot not found');
+    if (String((a as any).documentId) !== String(documentId) || String((b as any).documentId) !== String(documentId))
+      throw new NotFoundException('Snapshot does not belong to document');
+    const Yjs = require('yjs');
+    const zlib = require('zlib');
+    // build docs
+    const d1 = new Yjs.Doc();
+    const d2 = new Yjs.Doc();
+    try {
+      Yjs.applyUpdate(d1, zlib.gunzipSync((a as any).state));
+    } catch {}
+    try {
+      Yjs.applyUpdate(d2, zlib.gunzipSync((b as any).state));
+    } catch {}
+    const v1 = Yjs.encodeStateVector(d1);
+    const patch = Yjs.encodeStateAsUpdate(d2, v1);
+    const bytesA = ((a as any).state as Buffer).length;
+    const bytesB = ((b as any).state as Buffer).length;
+    return {
+      from: { id: (a as any)._id, seq: (a as any).seq, bytes: bytesA },
+      to: { id: (b as any)._id, seq: (b as any).seq, bytes: bytesB },
+      deltaBytes: bytesB - bytesA,
+      patchB64: Buffer.from(patch).toString('base64'),
+    };
+  }
+
   // Validate and attempt repair from update log if checksum mismatch or corruption suspected
   async validateAndRepair(documentId: string) {
     const rec = await this.contents.findByDocumentId(documentId);
@@ -293,5 +353,27 @@ export class DocumentsService {
     this.memCache.set(`doc:y:${documentId}`, out, parseInt(process.env.MEM_CACHE_Y_TTL || '5', 10));
     await this.cache.setJson(`doc:y:${documentId}`, out, parseInt(process.env.REDIS_CACHE_Y_TTL || '30', 10));
     return { ok: true, repaired: true };
+  }
+
+  async updateSnapshotMeta(userId: string, snapshotId: string, data: { label?: string; description?: string; tags?: string[]; category?: string; isMilestone?: boolean }) {
+    const snap = await this.snaps.findById(snapshotId);
+    if (!snap) throw new NotFoundException('Snapshot not found');
+    const docId = String((snap as any).documentId);
+    // require edit permission
+    const doc = await this.docs.findById(docId);
+    if (!doc) throw new NotFoundException('Document not found');
+    const owner = String((doc as any).ownerId) === String(userId);
+    const perm = await this.perms.find(docId, userId);
+    const role = (perm as any)?.role;
+    const allowed = owner || role === 'editor';
+    if (!allowed) throw new ForbiddenException('Insufficient permissions');
+    const payload: any = {};
+    if (typeof data.label === 'string') payload.label = data.label.slice(0, 200);
+    if (typeof data.description === 'string') payload.description = data.description.slice(0, 1000);
+    if (Array.isArray(data.tags)) payload.tags = data.tags.slice(0, 20).map((t) => String(t).slice(0, 32));
+    if (typeof data.category === 'string') payload.category = data.category.slice(0, 64);
+    if (typeof data.isMilestone === 'boolean') payload.isMilestone = data.isMilestone;
+    const updated = await this.snaps.updateMeta(snapshotId, payload);
+    return updated;
   }
 }

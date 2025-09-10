@@ -10,7 +10,11 @@
     "typecheck": "npm -w web run typecheck && npm -w api run typecheck",
     "build": "npm -w web run build && npm -w api run build",
     "dev": "concurrently -n api,web -c cyan,magenta \"npm -w api run start:dev\" \"npm -w web run dev\"",
-    "seed": "npm -w api run seed"
+    "seed": "npm -w api run seed",
+    "perf:k6:baseline": "docker run --rm -i -e BASE_URL=${BASE_URL:-http://host.docker.internal:4000} grafana/k6 run - < tests/load/k6/baseline.js",
+    "perf:k6:comments": "docker run --rm -i -e BASE_URL=${BASE_URL:-http://host.docker.internal:4000} -e VUS=${VUS:-50} -e DURATION=${DURATION:-1m} grafana/k6 run - < tests/load/k6/comments.js",
+    "perf:k6:search": "docker run --rm -i -e BASE_URL=${BASE_URL:-http://host.docker.internal:4000} -e VUS=${VUS:-60} -e DURATION=${DURATION:-1m} grafana/k6 run - < tests/load/k6/search.js",
+    "perf:ws:soak": "node tests/load/ws/soak.js"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

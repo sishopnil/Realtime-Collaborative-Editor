@@ -13,3 +13,4 @@ This document outlines the architecture for the comment system.
 
 See also `docs/operations/comments-runbook.md` and `docs/operations/comments-monitoring.md`.
 
+Related: Document version history and snapshots are implemented under `api/src/database/schemas/document-snapshot.schema.ts` with endpoints in `api/src/documents/documents.controller.ts` for listing, manual creation, rollback, and diff comparison.

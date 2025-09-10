@@ -26,9 +26,20 @@ export class Document {
   // incremented on each persisted Yjs update
   @Prop({ type: Number, default: 0 })
   version!: number;
+
+  // Discovery & popularity
+  @Prop({ type: Number, default: 0 })
+  views?: number;
+
+  @Prop({ type: Number, default: 0 })
+  clicks?: number;
+
+  @Prop({ type: Date, default: null })
+  lastActivityAt?: Date | null;
 }
 
 export type DocumentDocument = HydratedDocument<Document>;
 export const DocumentSchema = SchemaFactory.createForClass(Document);
 DocumentSchema.index({ workspaceId: 1, updatedAt: -1 });
 DocumentSchema.index({ title: 'text', tags: 1 });
+DocumentSchema.index({ tags: 1, status: 1, updatedAt: -1 });
