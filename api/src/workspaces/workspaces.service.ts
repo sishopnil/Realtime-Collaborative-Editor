@@ -56,7 +56,7 @@ export class WorkspacesService {
     return this.members.upsert(workspaceId, userId, role);
   }
 
-  removeMember(workspaceId: string, userId: string) {
+  removeMember(workspaceId: string, userId: string): Promise<any> {
     return this.members.remove(workspaceId, userId);
   }
 }

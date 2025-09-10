@@ -144,7 +144,7 @@ export class DocumentsController {
   @ApiOperation({ summary: 'Remove document permission' })
   @UseGuards(DocumentGuard)
   @DocumentRole('editor')
-  delPerm(@Param('id') id: string, @Param('userId') userId: string) {
+  delPerm(@Param('id') id: string, @Param('userId') userId: string): Promise<any> {
     return this.svc.removePermission(id, userId);
   }
 

@@ -23,7 +23,7 @@ export class DocumentPermissionRepository {
     return this.model.find({ documentId }).exec();
   }
 
-  remove(documentId: string, userId: string) {
+  remove(documentId: string, userId: string): Promise<any> {
     return this.model.deleteOne({ documentId, userId }).exec();
   }
 

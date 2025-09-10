@@ -5,6 +5,7 @@ import { RedisService } from './redis/redis.service';
 @Controller()
 export class HealthController {
   constructor(private readonly redis: RedisService) {}
+
   @Get('/health')
   health() {
     const mongoReady = mongoose.connection.readyState === 1;

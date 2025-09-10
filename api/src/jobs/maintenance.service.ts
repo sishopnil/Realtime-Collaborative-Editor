@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { JobQueueService } from './job-queue.service';
 import { DocumentRepository } from '../database/repositories/document.repo';
+import { CommentRepository } from '../database/repositories/comment.repo';
 import { DocumentContentRepository } from '../database/repositories/document-content.repo';
 import mongoose from 'mongoose';
 import { SecurityLogger } from '../common/security-logger.service';
@@ -14,6 +15,7 @@ export class MaintenanceService implements OnModuleInit {
     private readonly docs: DocumentRepository,
     private readonly contents: DocumentContentRepository,
     private readonly audit: SecurityLogger,
+    private readonly comments: CommentRepository,
   ) {}
 
   onModuleInit() {
@@ -22,6 +24,7 @@ export class MaintenanceService implements OnModuleInit {
     this.queue.register('index.maintain', async () => this.syncIndexes());
     this.queue.register('cache.cleanup', async () => this.cleanupCache());
     this.queue.register('audit.rotate', async () => this.rotateAudit());
+    this.queue.register('comments.archive', async () => this.archiveOldComments());
 
     // basic schedule (fallback for when no external scheduler): run periodic jobs
     setInterval(() => {
@@ -29,6 +32,7 @@ export class MaintenanceService implements OnModuleInit {
       void this.queue.add('orphan.cleanup', {}, { attempts: 1 });
       void this.queue.add('index.maintain', {}, { attempts: 1, delayMs: 2000 });
       void this.queue.add('audit.rotate', {}, { attempts: 1, delayMs: 3000 });
+      void this.queue.add('comments.archive', {}, { attempts: 1, delayMs: 4000 });
     }, 60_000);
   }
 
@@ -84,6 +88,22 @@ export class MaintenanceService implements OnModuleInit {
       const max = parseInt(process.env.AUDIT_LOG_MAX || '10000', 10);
       await client.ltrim('audit-log', 0, Math.max(0, max - 1));
       await this.audit.log('audit.rotate', { max });
+    } catch {}
+  }
+
+  async archiveOldComments() {
+    try {
+      const ttlDays = parseInt(process.env.COMMENT_ARCHIVE_DAYS || '90', 10);
+      const cutoff = new Date(Date.now() - ttlDays * 24 * 3600 * 1000);
+      // Archive only top-level resolved threads older than cutoff
+      const Model: any = (this.comments as any).model || (this.comments as any).mongooseModel || null;
+      const model = Model || (require('mongoose').connection.models['CommentDoc'] as any);
+      if (!model) return;
+      const res = await model.updateMany(
+        { parentId: null, status: 'resolved', archivedAt: null, updatedAt: { $lte: cutoff } },
+        { $set: { archivedAt: new Date() } },
+      );
+      await this.audit.log('comments.archive', { matched: res?.matchedCount ?? undefined, modified: res?.modifiedCount ?? undefined });
     } catch {}
   }
 }

@@ -1,0 +1,21 @@
+config:
+  target: "ws://localhost:3000"
+  phases:
+    - duration: 60
+      arrivalRate: 10
+    - duration: 120
+      arrivalRate: 30
+  engines:
+    ws: {}
+scenarios:
+  - engine: ws
+    name: presence-burst
+    flow:
+      - send: { emit: 'doc:join', data: { documentId: 'test-doc' } }
+      - loop:
+          count: 100
+          do:
+            - send: { emit: 'presence', data: { documentId: 'test-doc', anchor: 10, head: 10, typing: true } }
+            - think: 0.1
+            - send: { emit: 'presence', data: { documentId: 'test-doc', anchor: 11, head: 11, typing: false } }
+            - think: 0.1

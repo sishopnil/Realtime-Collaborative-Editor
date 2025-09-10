@@ -1,5 +1,7 @@
 :root { --border:#ddd; --bg:#fff; --toolbar-bg:#fafafa; --btn-border:#ccc; --btn-active:#8ab4f8; --code-bg:#0f172a; --code-fg:#e2e8f0; }
-[data-theme="contrast"] { --border:#000; --bg:#fff; --toolbar-bg:#000; --btn-border:#000; --btn-active:#ff0; --code-bg:#000; --code-fg:#ff0; }
+[data-theme="contrast"] { --border:#000; --bg:#fff; --toolbar-bg:#000; --btn-border:#000; --btn-active:#ff0; --code-bg:#000; --code-fg:#ff0; --presence-label-bg: #fff; --presence-outline: #000; }
+/* collaborative variables */
+:root { --presence-label-bg: rgba(255,255,255,0.95); --presence-outline: #fff; }
 
 .editor-container { border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
 .editor-toolbar {
@@ -54,3 +56,11 @@
 }
 .slash-menu [role="option"] { padding: 6px 10px; border-radius: 6px; }
 .slash-menu [aria-selected="true"] { background: #eef6ff; }
+
+/* Accessible presence visuals in contrast mode */
+[data-theme="contrast"] .remote-label { border-width: 2px !important; }
+[data-theme="contrast"] .remote-caret { box-shadow: 0 0 0 2px var(--presence-outline) !important; }
+
+@media (max-width: 640px) {
+  .remote-label { font-size: 9px !important; padding: 0 4px !important; }
+}

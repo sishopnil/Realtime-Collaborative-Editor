@@ -33,6 +33,7 @@ const COMPRESS_THRESHOLD = parseInt(process.env.WS_COMPRESS_THRESHOLD || '2048',
 const UPDATE_MAX_BYTES = parseInt(process.env.WS_UPDATE_MAX_BYTES || '1048576', 10);
 const IDLE_PRUNE_MS = parseInt(process.env.WS_IDLE_PRUNE_MS || '300000', 10);
 const PRESENCE_MIN_MS = parseInt(process.env.WS_PRESENCE_MIN_MS || '60', 10);
+const PRESENCE_TTL_SEC = parseInt(process.env.WS_PRESENCE_TTL_SEC || '60', 10);
 
 @WebSocketGateway({
   cors: {
@@ -57,6 +58,7 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
   private subRefs = new Map<string, number>();
   private heartbeatTimer?: NodeJS.Timeout;
   private presenceLast = new Map<string, number>(); // key: `${docId}:${userId}`
+  private claimPrefix = 'ws:section';
 
   constructor(
     private readonly redis: RedisService,
@@ -76,6 +78,7 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
       this.pub = base.duplicate();
       this.sub = base.duplicate();
       this.bindPubSubEvents();
+      try { this.sub.subscribe('ws:notify'); } catch {}
     } catch (e) {
       this.logger.warn(`Failed to init pub/sub: ${String(e)}`);
     }
@@ -110,6 +113,7 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
 
       // attach user onto socket
       client.data.user = { id: String(payload.sub), email: String(payload.email || '') };
+      try { client.join(`user:${client.data.user.id}`); } catch {}
 
       await this.audit.log('ws.connect', { userId: client.data.user.id, ip: client.handshake.address, origin });
       await this.redis.getClient().incr('ws:connections:total');
@@ -123,6 +127,18 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
   async handleDisconnect(client: SocketWithUser) {
     try {
       await this.audit.log('ws.disconnect', { userId: client.data.user?.id });
+      // cleanup online and presence state for joined docs
+      const userId = client.data.user?.id;
+      if (userId && client.data.joinedDocs && client.data.joinedDocs.size > 0) {
+        const r = this.redis.getClient();
+        for (const docId of client.data.joinedDocs) {
+          try {
+            await r.srem(`ws:online:doc:${docId}`, userId);
+            await r.srem(`ws:presence:doc:${docId}:users`, userId);
+            await r.del(`ws:presence:doc:${docId}:${userId}`);
+          } catch {}
+        }
+      }
     } catch {}
   }
 
@@ -161,6 +177,23 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
     await this.audit.log('ws.room.join', { userId: user.id, documentId });
     client.emit('doc:joined', { documentId });
 
+    // Send current presence list snapshot
+    try {
+      const r = this.redis.getClient();
+      const ukey = `ws:presence:doc:${documentId}:users`;
+      const users = await r.smembers(ukey);
+      const list: any[] = [];
+      for (const uid of users || []) {
+        try {
+          const raw = await r.get(`ws:presence:doc:${documentId}:${uid}`);
+          if (!raw) continue;
+          const p = JSON.parse(raw);
+          list.push(p);
+        } catch {}
+      }
+      if (list.length > 0) client.emit('presence:list', { documentId, list });
+    } catch {}
+
     // Notify size warnings if any
     try {
       const note = await this.redis.getClient().get(`doc:size:${documentId}`);
@@ -185,6 +218,21 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
       this.logger.warn(`y-init failed: ${String(e)}`);
     }
 
+    // Send current section claims snapshot
+    try {
+      const r = this.redis.getClient();
+      const setKey = `${this.claimPrefix}:doc:${documentId}`;
+      const keys = await r.smembers(setKey);
+      const claims: any[] = [];
+      for (const k of keys || []) {
+        try {
+          const raw = await r.get(k);
+          if (raw) claims.push(JSON.parse(raw));
+        } catch {}
+      }
+      if (claims.length) client.emit('section:list', { documentId, claims });
+    } catch {}
+
     // Subscribe to inter-instance channel for this document
     await this.subscribeDocChannel(documentId);
   }
@@ -201,6 +249,8 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
     try {
       // naive: mark offline on leave (does not dedupe multiple tabs)
       await this.redis.getClient().srem(`ws:online:doc:${documentId}`, user.id);
+      await this.redis.getClient().srem(`ws:presence:doc:${documentId}:users`, user.id);
+      await this.redis.getClient().del(`ws:presence:doc:${documentId}:${user.id}`);
     } catch {}
     client.emit('doc:left', { documentId });
     await this.unsubscribeDocChannel(documentId);
@@ -323,7 +373,15 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
       return; // drop silently
     }
     this.presenceLast.set(k, now);
-    const evt = { documentId, anchor: payload.anchor|0, head: payload.head|0, typing: !!payload.typing, userId: user.id } as any;
+    const evt = { documentId, anchor: payload.anchor|0, head: payload.head|0, typing: !!payload.typing, userId: user.id, ts: Date.now() } as any;
+
+    // Persist to Redis with TTL for aggregation
+    try {
+      const r = this.redis.getClient();
+      await r.sadd(`ws:presence:doc:${documentId}:users`, user.id);
+      await r.expire(`ws:presence:doc:${documentId}:users`, Math.max(PRESENCE_TTL_SEC, 10));
+      await r.set(`ws:presence:doc:${documentId}:${user.id}`, JSON.stringify(evt), 'EX', Math.max(PRESENCE_TTL_SEC, 10));
+    } catch {}
     client.to(room).emit('presence', evt);
     await this.publishFanout(documentId, { type: 'presence', payload: evt });
     try { await this.redis.getClient().incr('metrics:presence:sent'); } catch {}
@@ -339,6 +397,71 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
     } catch {
       client.emit('ws:pong', { ts: Date.now(), redis: 'err' });
     }
+  }
+
+  // Lightweight metrics collector (best-effort)
+  @SubscribeMessage('doc:metric')
+  async onMetric(@ConnectedSocket() client: SocketWithUser, @MessageBody() payload: any) {
+    const user = client.data.user;
+    if (!user) throw new WsException('Not authenticated');
+    try {
+      const { documentId, name } = payload || {};
+      if (!documentId || !name) return;
+      const r = this.redis.getClient();
+      await r.incr(`metrics:${name}:doc:${documentId}`);
+      await r.expire(`metrics:${name}:doc:${documentId}`, 86400);
+    } catch {}
+  }
+
+  // Section claim: soft-ownership to reduce conflicts
+  @SubscribeMessage('section:claim')
+  async onSectionClaim(@ConnectedSocket() client: SocketWithUser, @MessageBody() payload: any) {
+    const user = client.data.user;
+    if (!user) throw new WsException('Not authenticated');
+    const documentId = (payload && payload.documentId) || '';
+    const from = Math.max(1, (payload && payload.from) | 0);
+    const to = Math.max(from, (payload && payload.to) | 0);
+    const ttl = Math.min(600, Math.max(10, (payload && payload.ttlSec) | 0 || 60));
+    if (!documentId) throw new WsException('documentId required');
+    const claimId = (crypto as any).randomUUID ? (crypto as any).randomUUID() : Math.random().toString(36).slice(2);
+    const data = { claimId, documentId, from, to, userId: user.id, ts: Date.now(), ttl };
+    try {
+      const r = this.redis.getClient();
+      const key = `${this.claimPrefix}:doc:${documentId}:${claimId}`;
+      const setKey = `${this.claimPrefix}:doc:${documentId}`;
+      await r.set(key, JSON.stringify(data), 'EX', ttl);
+      await r.sadd(setKey, key);
+      await r.expire(setKey, Math.max(ttl, 120));
+    } catch {}
+    const room = `${ROOM_PREFIX}${documentId}`;
+    client.to(room).emit('section:claimed', data);
+    await this.publishFanout(documentId, { type: 'section:claimed', payload: data });
+    client.emit('ack', { msgId: payload?.msgId, status: 'ok', claimId });
+  }
+
+  @SubscribeMessage('section:release')
+  async onSectionRelease(@ConnectedSocket() client: SocketWithUser, @MessageBody() payload: any) {
+    const user = client.data.user;
+    if (!user) throw new WsException('Not authenticated');
+    const documentId = (payload && payload.documentId) || '';
+    const claimId = (payload && payload.claimId) || '';
+    if (!documentId || !claimId) throw new WsException('Invalid payload');
+    const room = `${ROOM_PREFIX}${documentId}`;
+    try {
+      const r = this.redis.getClient();
+      const key = `${this.claimPrefix}:doc:${documentId}:${claimId}`;
+      const raw = await r.get(key);
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (String(data.userId) !== String(user.id)) throw new WsException('Not owner');
+      }
+      await r.del(key);
+      await r.srem(`${this.claimPrefix}:doc:${documentId}`, key);
+    } catch {}
+    const evt = { claimId, documentId, by: user.id };
+    client.to(room).emit('section:released', evt);
+    await this.publishFanout(documentId, { type: 'section:released', payload: evt });
+    client.emit('ack', { msgId: payload?.msgId, status: 'ok' });
   }
 
   private async hasDocAccess(userId: string, documentId: string, role: 'viewer' | 'editor' | 'owner', doc?: any) {
@@ -508,8 +631,13 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
     if (!this.sub) return;
     this.sub.on('message', (channel: string, message: string) => {
       try {
-        const data = JSON.parse(message) as { origin: string; type: string; payload: any; documentId?: string };
-        if (data.origin === this.instanceId) return;
+        const data = JSON.parse(message) as { origin?: string; type?: string; payload?: any; documentId?: string; to?: string };
+        if (data.origin && data.origin === this.instanceId) return;
+        if (channel === 'ws:notify') {
+          const to = (data as any).to as string | undefined;
+          if (to) this.server.to(`user:${to}`).emit('notify', (data as any).payload);
+          return;
+        }
         const docId = data.payload?.documentId || data.documentId || channel.replace('ws:room:', '');
         const room = `${ROOM_PREFIX}${docId}`;
         if (data.type === 'y-update') {
@@ -518,6 +646,18 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
           this.server.to(room).emit('doc:msg', data.payload);
         } else if (data.type === 'presence') {
           this.server.to(room).emit('presence', data.payload);
+        } else if (data.type === 'section:claimed') {
+          this.server.to(room).emit('section:claimed', data.payload);
+        } else if (data.type === 'section:released') {
+          this.server.to(room).emit('section:released', data.payload);
+        } else if (data.type === 'comment:created') {
+          this.server.to(room).emit('comment:created', data.payload);
+        } else if (data.type === 'comment:updated') {
+          this.server.to(room).emit('comment:updated', data.payload);
+        } else if (data.type === 'comment:deleted') {
+          this.server.to(room).emit('comment:deleted', data.payload);
+        } else if (data.type === 'comment:resolved') {
+          this.server.to(room).emit('comment:resolved', data.payload);
         }
       } catch (e) {
         this.logger.warn(`sub message parse failed: ${String(e)}`);

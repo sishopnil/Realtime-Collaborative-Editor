@@ -19,6 +19,15 @@ export class UserRepository {
     return this.model.findById(id).exec();
   }
 
+  search(q: string, limit = 10) {
+    const query: any = {};
+    if (q) {
+      const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      query.$or = [{ email: rx }, { name: rx }];
+    }
+    return this.model.find(query).limit(limit).select({ email: 1, name: 1 }).lean().exec();
+  }
+
   async updateById(id: string, update: Partial<User>) {
     return this.model.findByIdAndUpdate(id, update, { new: true }).exec();
   }

@@ -29,7 +29,7 @@ export class DocumentUpdateRepository {
     return rec?.seq ?? 0;
   }
 
-  async compactUpTo(documentId: string, seqInclusive: number) {
+  async compactUpTo(documentId: string, seqInclusive: number): Promise<any> {
     return this.model.deleteMany({ documentId, seq: { $lte: seqInclusive } }).exec();
   }
 

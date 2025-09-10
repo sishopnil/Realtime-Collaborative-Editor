@@ -11,7 +11,9 @@ import { AuditInterceptor } from './common/audit.interceptor';
 import { SecurityController } from './security/security.controller';
 import { SecurityLogger } from './common/security-logger.service';
 import { WsModule } from './ws/ws.module';
+import { CommentsModule } from './comments/comments.module';
 import { JobsModule } from './jobs/jobs.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { MetricsController } from './metrics/metrics.controller';
 
 @Module({
@@ -24,6 +26,8 @@ import { MetricsController } from './metrics/metrics.controller';
     WorkspacesModule,
     DocumentsModule,
     WsModule,
+    CommentsModule,
+    NotificationsModule,
     JobsModule,
   ],
   controllers: [HealthController, SecurityController, MetricsController],

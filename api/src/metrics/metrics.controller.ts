@@ -17,6 +17,11 @@ export class MetricsController {
       'metrics:presence:sent',
       'metrics:presence:dropped',
       'ws:connections:total',
+      'metrics:comments:created',
+      'metrics:comments:replied',
+      'metrics:comments:resolved',
+      'metrics:comments:deleted',
+      'metrics:comments:reacted',
     ];
     const vals = await r.mget(keys);
     const out: Record<string, number> = {};
@@ -24,4 +29,3 @@ export class MetricsController {
     return out;
   }
 }
-

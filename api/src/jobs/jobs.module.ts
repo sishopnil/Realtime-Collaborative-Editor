@@ -6,10 +6,11 @@ import { MaintenanceService } from './maintenance.service';
 import { JobsController } from './jobs.controller';
 import { DatabaseModule } from '../database/database.module';
 import { DocumentsModule } from '../documents/documents.module';
+import { CommentsModule } from '../comments/comments.module';
 import { SecurityLogger } from '../common/security-logger.service';
 
 @Module({
-  imports: [RedisModule, DatabaseModule, DocumentsModule],
+  imports: [RedisModule, DatabaseModule, DocumentsModule, CommentsModule],
   providers: [JobQueueService, DocumentJobsService, MaintenanceService, SecurityLogger],
   controllers: [JobsController],
   exports: [JobQueueService],

@@ -82,7 +82,7 @@ export class JwtKeysService implements OnModuleInit {
 
   async sign(payload: object, subject: string, ttlSec: number, audience: string, issuer: string): Promise<string> {
     const { kid, secret } = await this.getCurrent();
-    return jwt.sign(payload, secret, { subject, expiresIn: ttlSec, audience, issuer, header: { kid } });
+    return jwt.sign(payload, secret, { subject, expiresIn: ttlSec, audience, issuer, keyid: kid });
   }
 
   async verify(token: string): Promise<any> {
@@ -98,4 +98,3 @@ export class JwtKeysService implements OnModuleInit {
     return jwt.verify(token, curr.secret);
   }
 }
-

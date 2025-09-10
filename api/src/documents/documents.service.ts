@@ -98,7 +98,7 @@ export class DocumentsService {
     return this.perms.upsert(documentId, userId, body.role);
   }
 
-  removePermission(documentId: string, userId: string) {
+  removePermission(documentId: string, userId: string): Promise<any> {
     return this.perms.remove(documentId, userId);
   }
 

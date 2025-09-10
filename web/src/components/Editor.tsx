@@ -113,7 +113,7 @@ export default function Editor({ value, onChange, placeholder, readOnly, classNa
     () => [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
-        codeBlock: true,
+        codeBlock: {},
       }),
       Underline,
       Link.configure({ openOnClick: false, autolink: true, protocols: ['http', 'https', 'mailto'] }),

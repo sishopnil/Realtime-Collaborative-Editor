@@ -43,6 +43,9 @@ export class SimpleYProvider {
   private wsConnected = false;
   private wsQueue: { b64: string; msgId: string; seq: number }[] = [];
   private consecutiveFailures = 0;
+  private lastPresence?: { anchor: number; head: number; typing?: boolean };
+  private lastPresenceAt = 0;
+  private presenceMinMs = 120; // min interval between presence emits
 
   constructor(opts: YProviderOptions) {
     this.ydoc = new Y.Doc();
@@ -161,6 +164,45 @@ export class SimpleYProvider {
         window.dispatchEvent(new CustomEvent('doc-presence', { detail: { docId: this.docId, presence: p } }));
       } catch {}
     });
+    s.on('presence:list', (p: any) => {
+      try {
+        window.dispatchEvent(
+          new CustomEvent('doc-presence-list', { detail: { docId: this.docId, presenceList: p?.list || p } }),
+        );
+      } catch {}
+    });
+    s.on('notify', (p: any) => {
+      try {
+        window.dispatchEvent(new CustomEvent('notify', { detail: p }));
+      } catch {}
+    });
+    s.on('section:claimed', (p: any) => {
+      try {
+        window.dispatchEvent(new CustomEvent('doc-section-claimed', { detail: { docId: this.docId, claim: p } }));
+      } catch {}
+    });
+    s.on('section:released', (p: any) => {
+      try {
+        window.dispatchEvent(new CustomEvent('doc-section-released', { detail: { docId: this.docId, release: p } }));
+      } catch {}
+    });
+    s.on('section:list', (p: any) => {
+      try {
+        window.dispatchEvent(new CustomEvent('doc-section-list', { detail: { docId: this.docId, claims: p?.claims || [] } }));
+      } catch {}
+    });
+    s.on('comment:created', (p: any) => {
+      try { window.dispatchEvent(new CustomEvent('comment-event', { detail: { docId: this.docId, type: 'created', payload: p } })); } catch {}
+    });
+    s.on('comment:updated', (p: any) => {
+      try { window.dispatchEvent(new CustomEvent('comment-event', { detail: { docId: this.docId, type: 'updated', payload: p } })); } catch {}
+    });
+    s.on('comment:deleted', (p: any) => {
+      try { window.dispatchEvent(new CustomEvent('comment-event', { detail: { docId: this.docId, type: 'deleted', payload: p } })); } catch {}
+    });
+    s.on('comment:resolved', (p: any) => {
+      try { window.dispatchEvent(new CustomEvent('comment-event', { detail: { docId: this.docId, type: 'resolved', payload: p } })); } catch {}
+    });
     s.on('ack', (_p: any) => {
       // acks are handled best-effort; no specific action required here
     });
@@ -179,8 +221,53 @@ export class SimpleYProvider {
   }
 
   sendPresence(p: { anchor: number; head: number; typing?: boolean }) {
+    const now = Date.now();
+    // Filter duplicates and throttle
+    if (this.lastPresence) {
+      const dAnchor = Math.abs((p.anchor | 0) - (this.lastPresence.anchor | 0));
+      const dHead = Math.abs((p.head | 0) - (this.lastPresence.head | 0));
+      const typingChanged = !!p.typing !== !!this.lastPresence.typing;
+      const movedEnough = dAnchor + dHead >= 3;
+      const timeOk = now - this.lastPresenceAt >= this.presenceMinMs;
+      if (!typingChanged && !movedEnough && !timeOk) return;
+      if (!timeOk && typingChanged) {
+        // allow typing flips even if throttled
+        // proceed
+      } else if (!timeOk && !movedEnough) {
+        return;
+      }
+    }
+    this.lastPresence = { anchor: p.anchor | 0, head: p.head | 0, typing: !!p.typing };
+    this.lastPresenceAt = now;
     try {
-      this.socket?.emit('presence', { documentId: this.docId, ...p });
+      this.socket?.emit('presence', { documentId: this.docId, ...this.lastPresence });
+      this.bumpPresence('presence_sent');
+    } catch {}
+  }
+
+  private bumpPresence(name: 'presence_sent') {
+    try {
+      const key = `doc-analytics:${this.docId}`;
+      const obj = JSON.parse(localStorage.getItem(key) || '{}');
+      obj[name] = (obj[name] || 0) + 1;
+      localStorage.setItem(key, JSON.stringify(obj));
+    } catch {}
+  }
+
+  sendMetric(name: string) {
+    try {
+      this.socket?.emit('doc:metric', { documentId: this.docId, name });
+    } catch {}
+  }
+
+  claimSection(from: number, to: number, ttlSec = 60) {
+    try {
+      this.socket?.emit('section:claim', { documentId: this.docId, from: from | 0, to: to | 0, ttlSec });
+    } catch {}
+  }
+  releaseSection(claimId: string) {
+    try {
+      this.socket?.emit('section:release', { documentId: this.docId, claimId });
     } catch {}
   }
 

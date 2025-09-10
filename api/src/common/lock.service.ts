@@ -7,7 +7,9 @@ export class LockService {
 
   async acquire(key: string, ttlMs = 5000): Promise<string | null> {
     const token = Math.random().toString(36).slice(2);
-    const ok = await this.redis.getClient().set(key, token, 'NX', 'PX', ttlMs);
+    const client: any = this.redis.getClient();
+    // ioredis signature: set key value PX ttl NX
+    const ok = await client.set(key, token, 'PX', ttlMs, 'NX');
     return ok ? token : null;
   }
 
@@ -25,4 +27,3 @@ export class LockService {
     } catch {}
   }
 }
-

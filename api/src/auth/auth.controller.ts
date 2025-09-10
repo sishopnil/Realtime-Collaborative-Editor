@@ -141,12 +141,10 @@ export class AuthController {
     const token = (req.cookies && (req.cookies as any)['refreshToken']) || undefined;
     if (token) {
       try {
-        const payload = (await import('jsonwebtoken')).then(
-          (m) => m.default.verify(token, process.env.JWT_SECRET || 'changeme') as any,
-        );
+        const jwt = await import('jsonwebtoken');
+        const p = jwt.default.verify(token, process.env.JWT_SECRET || 'changeme') as any;
         // best-effort revoke
-        const p = await payload;
-        if (p.jti) await this.auth.revokeRefresh(p.jti);
+        if (p && p.jti) await this.auth.revokeRefresh(p.jti);
       } catch {}
     }
     res.clearCookie('refreshToken', { path: '/api/auth' });

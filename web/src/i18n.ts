@@ -1,6 +1,25 @@
 export type Messages = Record<string, string>;
 
 const en: Messages = {
+  comments: 'Comments',
+  search: 'Search',
+  open: 'Open',
+  resolved: 'Resolved',
+  all: 'All',
+  loading: 'Loading…',
+  close: 'Close',
+  jumpToPosition: 'Jump to position',
+  resolve: 'Resolve',
+  delete: 'Delete',
+  share: 'Share',
+  reply: 'Reply',
+  typing: 'typing…',
+  newCommentForSelection: 'New comment for current selection',
+  typeAComment: 'Type a comment… Use @email to mention.',
+  post: 'Post',
+  clear: 'Clear',
+  highContrast: 'High contrast',
+  status: 'Status',
   bold: 'Bold',
   italic: 'Italic',
   underline: 'Underline',
@@ -13,8 +32,6 @@ const en: Messages = {
   undo: 'Undo',
   redo: 'Redo',
   link: 'Link',
-  clear: 'Clear',
-  export: 'Export',
   syncing: 'Syncing…',
   offline: 'Offline',
   allSaved: 'All changes saved',
@@ -38,4 +55,3 @@ export function isRtlLocale(locale?: string) {
   const l = (locale || '').toLowerCase();
   return rtl.some((p) => l === p || l.startsWith(p + '-'));
 }
-

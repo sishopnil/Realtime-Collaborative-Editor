@@ -21,7 +21,7 @@ export class WorkspaceMemberRepository {
     return this.model.find({ workspaceId }).exec();
   }
 
-  remove(workspaceId: string, userId: string) {
+  remove(workspaceId: string, userId: string): Promise<any> {
     return this.model.deleteOne({ workspaceId, userId }).exec();
   }
 

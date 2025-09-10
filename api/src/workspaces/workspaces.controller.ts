@@ -105,7 +105,7 @@ export class WorkspacesController {
   @UseGuards(WorkspaceGuard)
   @WorkspaceRole('admin')
   @ApiOperation({ summary: 'Remove a member from workspace' })
-  removeMember(@Param('workspaceId') workspaceId: string, @Param('userId') userId: string) {
+  removeMember(@Param('workspaceId') workspaceId: string, @Param('userId') userId: string): Promise<any> {
     return this.svc.removeMember(workspaceId, userId);
   }
 
