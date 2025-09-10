@@ -23,6 +23,7 @@ import * as Y from 'yjs';
 import { gzipSync, gunzipSync } from 'zlib';
 import { YSyncPayload } from './types';
 import * as crypto from 'crypto';
+import { ChaosService } from '../chaos/chaos.service';
 
 type SocketWithUser = Socket & { data: { user?: ClientUser; joinedDocs?: Set<string> } };
 
@@ -67,6 +68,7 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
     private readonly permsRepo: DocumentPermissionRepository,
     private readonly membersRepo: WorkspaceMemberRepository,
     private readonly docsService: DocumentsService,
+    private readonly chaos: ChaosService,
   ) {}
 
   afterInit(server: Server) {
@@ -97,6 +99,15 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
 
   async handleConnection(client: SocketWithUser) {
     try {
+      // Chaos: randomly disconnect clients on connect
+      try {
+        const cfg = await this.chaos.getConfig();
+        const rate = Math.max(0, Math.min(1, Number(cfg?.ws?.disconnectRate || 0)));
+        if (cfg?.enabled && rate > 0 && Math.random() < rate) {
+          try { client.disconnect(true); } catch {}
+          return;
+        }
+      } catch {}
       const origin = client.handshake.headers.origin as string | undefined;
       const token =
         (client.handshake.auth && (client.handshake.auth as any).token) ||
@@ -382,8 +393,17 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnMo
       await r.expire(`ws:presence:doc:${documentId}:users`, Math.max(PRESENCE_TTL_SEC, 10));
       await r.set(`ws:presence:doc:${documentId}:${user.id}`, JSON.stringify(evt), 'EX', Math.max(PRESENCE_TTL_SEC, 10));
     } catch {}
-    client.to(room).emit('presence', evt);
-    await this.publishFanout(documentId, { type: 'presence', payload: evt });
+    // Chaos: drop some presence events
+    let drop = false;
+    try {
+      const cfg = await this.chaos.getConfig();
+      const rate = Math.max(0, Math.min(1, Number(cfg?.ws?.dropPresenceRate || 0)));
+      drop = !!cfg?.enabled && rate > 0 && Math.random() < rate;
+    } catch {}
+    if (!drop) {
+      client.to(room).emit('presence', evt);
+      await this.publishFanout(documentId, { type: 'presence', payload: evt });
+    }
     try { await this.redis.getClient().incr('metrics:presence:sent'); } catch {}
   }
 

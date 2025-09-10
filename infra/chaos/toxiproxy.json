@@ -1,0 +1,14 @@
+[
+  {
+    "name": "mongo",
+    "listen": "0.0.0.0:27019",
+    "upstream": "mongo:27017",
+    "enabled": true
+  },
+  {
+    "name": "redis",
+    "listen": "0.0.0.0:6380",
+    "upstream": "redis:6379",
+    "enabled": true
+  }
+]

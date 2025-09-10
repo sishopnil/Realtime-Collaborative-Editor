@@ -1,0 +1,19 @@
+services:
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.6.0
+    ports:
+      - "8474:8474"   # admin API
+      - "27019:27019" # mongo proxy
+      - "6380:6380"   # redis proxy
+    command: ["/toxiproxy-server", "-host=0.0.0.0"]
+    healthcheck:
+      test: ["CMD", "sh", "-lc", "nc -z localhost 8474"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+# Example: run with overlay and point API to proxies
+# docker compose -f docker-compose.yml -f infra/chaos/docker-compose.chaos.yml up -d
+# env overrides (API):
+#   MONGO_URL=mongodb://toxiproxy:27019/rce?replicaSet=rs0
+#   REDIS_URL=redis://toxiproxy:6380

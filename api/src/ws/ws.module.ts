@@ -4,9 +4,10 @@ import { DatabaseModule } from '../database/database.module';
 import { RedisModule } from '../redis/redis.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { SecurityLogger } from '../common/security-logger.service';
+import { ChaosModule } from '../chaos/chaos.module';
 
 @Module({
-  imports: [DatabaseModule, RedisModule, DocumentsModule],
+  imports: [DatabaseModule, RedisModule, DocumentsModule, ChaosModule],
   providers: [WsGateway, SecurityLogger],
 })
 export class WsModule {}
